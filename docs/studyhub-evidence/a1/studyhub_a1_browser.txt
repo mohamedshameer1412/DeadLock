@@ -1,0 +1,30 @@
+server up: uvicorn studyhub.web.app:app  db=studyhub_a1.db  (production scrypt cost)
+PASS  0  a real browser  ::  Edg/153.0.0.0
+PASS  1  signed out, the home page sends you to the login page  ::  location: /login
+PASS  2  register -> lands on Your subjects, signed in as alice  ::  734 ms incl. real scrypt
+PASS  3  the session cookie is HttpOnly, SameSite=Lax, path /  ::  {"httpOnly":true,"sameSite":"Lax","path":"/","secure":false}
+PASS  3b JavaScript in the page cannot read the session cookie  ::  document.cookie = ""
+PASS  4  create a subject -> its own page  ::  /subjects/1
+PASS  5  a hostile subject name is shown as text, never executed  ::  img elements: 0, script elements: 0
+PASS  6  rename a subject  ::  h1 = Database Systems
+PASS  7  logout -> login page, cookie removed by the browser  ::  sh_session present: false
+PASS  7b signed out again, /subjects sends you to the login page  ::  /login
+PASS  8  REPLAY: putting the old cookie back does not log you in (server-side logout)  ::  location after replay: /login
+PASS  9  wrong password -> generic error, still on the login page, nothing echoed  ::  message shown; password field empty
+PASS  9b unknown user gets the identical message  ::  same text
+PASS  10 a second user starts with nothing and sees none of alice's subjects  ::  Bob's subjects page: "No subjects yet"
+PASS  11 bob opening alice's subject URL gets a 404 page that reveals nothing  ::  HTTP 404: StudyHub
+PASS  12 a POST without the CSRF token is refused (403)  ::  HTTP 403
+PASS  13 security headers reach the browser (CSP forbids scripts, no framing, nosniff)  ::  default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none' | DENY | nosniff
+PASS  14 alice logs in again and finds her subjects, and only hers  ::  Database Systems present, "sneaky" absent
+PASS  15 no JavaScript errors in the session  ::  0 errors
+
+BROWSER RESULT: 19/19 passed
+
+SQLITE (read directly):
+   user: (1, 'alice', 32, '{"n": 32768, "r": 8, "p": 1, "dklen": 32}')
+   user: (2, 'bobby', 32, '{"n": 32768, "r": 8, "p": 1, "dklen": 32}')
+   password plaintext anywhere in the file? False
+   subjects: [(1, 'Database Systems'), (1, '<img src=x onerror=alert(1)>')]
+   live sessions: 1
+server stopped: no LISTENING socket

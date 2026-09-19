@@ -10,3 +10,6 @@ out/
 .pytest_cache/
 .DS_Store
 bakeoff_raw.txt
+
+# StudyHub runtime data (user database, uploaded materials) - never commit
+data/
