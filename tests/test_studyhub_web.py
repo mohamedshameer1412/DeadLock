@@ -283,6 +283,7 @@ def test_security_headers_are_on_every_response(env):
         assert h["cache-control"] == "no-store"
 
 
+
 def test_the_pages_contain_no_javascript(env):
     c = new_client()
     sign_up(c)

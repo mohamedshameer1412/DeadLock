@@ -246,6 +246,102 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (5);
     COMMIT;
     """),
+    (6, """\
+    BEGIN;
+
+    -- One quiz attempt by a student on a subject's MCQ bank.
+    -- topic_ids_json = JSON list of topic IDs included (empty = whole subject).
+    -- topic_stack_json = JSON list of topic IDs currently being worked through (backward-pass stack).
+    -- topics_verified_json = JSON list of topic IDs that received a PASS this attempt.
+    CREATE TABLE quiz_attempts (
+        id                    INTEGER PRIMARY KEY,
+        user_id               INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id            INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_ids_json        TEXT NOT NULL DEFAULT '[]',
+        started_at            REAL NOT NULL,
+        finished_at           REAL,
+        is_active             INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+        score                 REAL NOT NULL DEFAULT 0,
+        max_score             REAL NOT NULL DEFAULT 0,
+        correct_answers       INTEGER NOT NULL DEFAULT 0,
+        incorrect_answers     INTEGER NOT NULL DEFAULT 0,
+        -- Behaviour (adapted from ai_learnmate QuizSession)
+        total_tab_switches    INTEGER NOT NULL DEFAULT 0,
+        total_fullscreen_exits INTEGER NOT NULL DEFAULT 0,
+        total_copy_attempts   INTEGER NOT NULL DEFAULT 0,
+        avg_response_time     REAL NOT NULL DEFAULT 0,
+        behavior_score        REAL NOT NULL DEFAULT 100,
+        -- Backward-pass state (from tracer/flow.py)
+        current_difficulty    INTEGER NOT NULL DEFAULT 1 CHECK (current_difficulty BETWEEN 1 AND 3),
+        topic_stack_json      TEXT NOT NULL DEFAULT '[]',
+        depth                 INTEGER NOT NULL DEFAULT 0,
+        topics_verified_json  TEXT NOT NULL DEFAULT '[]',
+        had_timeout           INTEGER NOT NULL DEFAULT 0 CHECK (had_timeout IN (0, 1)),
+        attempt_number        INTEGER NOT NULL DEFAULT 1,
+        -- Backward-pass callback state: waiting | step_back | retry | none
+        callback_state        TEXT NOT NULL DEFAULT 'none' CHECK (callback_state IN ('none', 'waiting', 'step_back', 'retry', 'timeout')),
+        -- Append-only JSON list of verdict dicts (topic_id, status, objections, prerequisite_id)
+        -- Kept on the row for simplicity; never mutated, only appended via JSON_EACH / Python.
+        verdict_log_json      TEXT NOT NULL DEFAULT '[]'
+    );
+    CREATE INDEX quiz_attempts_by_subject ON quiz_attempts(user_id, subject_id, started_at);
+    CREATE INDEX quiz_attempts_active ON quiz_attempts(user_id, is_active);
+
+    -- One answered (or skipped) MCQ within an attempt.
+    CREATE TABLE attempt_answers (
+        id                    INTEGER PRIMARY KEY,
+        attempt_id            INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+        item_id               INTEGER NOT NULL REFERENCES mcq_items(id) ON DELETE CASCADE,
+        chosen_index          INTEGER,         -- NULL if not yet answered
+        is_correct            INTEGER,         -- NULL if not yet answered
+        response_time         REAL,            -- seconds from question display to submit
+        hesitation_count      INTEGER NOT NULL DEFAULT 0,  -- times answer changed before submit
+        confidence_level      REAL NOT NULL DEFAULT 0.5,   -- 0-1 computed from time+hesitations
+        answered_at           REAL
+    );
+    CREATE INDEX attempt_answers_by_attempt ON attempt_answers(attempt_id);
+
+    -- Proctoring events recorded by browser JS (adapted from ai_learnmate ProctoringEvent).
+    -- severity scale: tab_switch=60, full_screen_exit=30, copy_attempt=20, paste_attempt=20, browser_resize=10
+    CREATE TABLE quiz_proctoring_events (
+        id          INTEGER PRIMARY KEY,
+        attempt_id  INTEGER NOT NULL REFERENCES quiz_attempts(id) ON DELETE CASCADE,
+        event_type  TEXT NOT NULL CHECK (event_type IN (
+                        'tab_switch', 'full_screen_exit', 'copy_attempt',
+                        'paste_attempt', 'browser_resize', 'auto_submit')),
+        severity    INTEGER NOT NULL DEFAULT 0,
+        details_json TEXT NOT NULL DEFAULT '{}',
+        captured_at REAL NOT NULL
+    );
+    CREATE INDEX proctor_events_by_attempt ON quiz_proctoring_events(attempt_id);
+
+    -- Per-topic mastery derived from attempt_answers (recomputable from scratch).
+    -- state: unknown | learning | mastered | weak
+    CREATE TABLE topic_progress (
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_id    INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+        answered    INTEGER NOT NULL DEFAULT 0,
+        correct     INTEGER NOT NULL DEFAULT 0,
+        mastery     REAL NOT NULL DEFAULT 0.0,
+        state       TEXT NOT NULL DEFAULT 'unknown' CHECK (state IN ('unknown', 'learning', 'mastered', 'weak')),
+        updated_at  REAL NOT NULL,
+        PRIMARY KEY (user_id, subject_id, topic_id)
+    );
+
+    -- Prerequisite graph edges. Only confirmed=1 edges are ever followed in code.
+    -- origin: 'manual' (user set it), 'suggested' (auto-detected, not yet confirmed).
+    CREATE TABLE topic_prereqs (
+        topic_id    INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+        prereq_id   INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+        confirmed   INTEGER NOT NULL DEFAULT 0 CHECK (confirmed IN (0, 1)),
+        origin      TEXT NOT NULL DEFAULT 'manual' CHECK (origin IN ('manual', 'suggested')),
+        PRIMARY KEY (topic_id, prereq_id)
+    );
+
+    INSERT INTO schema_version(v) VALUES (6);
+    COMMIT;
+    """),
 ]
 
 

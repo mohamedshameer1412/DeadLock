@@ -1,0 +1,35 @@
+====================================================================================================
+PERSISTENCE 1 [FIXTURE replies, REAL processes]: process killed mid-revision, another process continues
+====================================================================================================
+process A (start run, generate v1, get rejected, begin revision, then KILLED) exit code = 9
+   RUN_ID=run_4e216c908d18
+   child: >>> killing this process now (os._exit(9)) <<<
+
+process B (a brand-new process) exit code = 0
+   reloaded run run_4e216c908d18: state=drafting  drafts=1  verdicts=1  tokens=482
+   persisted verdict 1: REJECTED [('code', 'quote_not_in_source'), ('model', 'not_exactly_one_correct')]
+   persisted trace path so far: drafting -> gating -> drafting
+   persisted step records: [('drafting', 'gating'), ('gating', 'drafting')]
+   CONTINUED in a new process -> complete; drafts now 2; generate calls this process: 1
+   revision prompt used the feedback persisted by the DEAD process: True
+   revision history: [(2, 'agent:generator'), (6, 'agent:generator')]
+   final trace path: drafting -> gating -> drafting -> gating -> complete
+
+====================================================================================================
+PERSISTENCE 2 [FIXTURE replies, REAL processes]: human-review state and feedback across three processes
+====================================================================================================
+process A (run until the revision limit, park on a human, EXIT) exit code = 0
+   RUN_ID=run_beda17238fa6
+   parked: awaiting_expert ; open questions: 1
+
+process B (reload the parked run, add tester feedback, EXIT) exit code = 0
+   reloaded: state=awaiting_expert; pending question q_98f0de1bd61a; context keys=['draft_4', 'resume_state', 'the_source', 'what_the_validator_objects_to', 'why_review_is_needed']; drafts=4
+   feedback written before this process exits: #20 draft=4 run_state=awaiting_expert
+
+process C (reload, human answers, run completes) exit code = 0
+   reloaded: state=awaiting_expert; feedback rows=1
+   answered + advanced in a third process -> complete
+   result: {'outcome': 'approved', 'approved_by': 'human:qa-reviewer', 'draft': 4, 'revisions': 3, 'overrode': ['quote_not_in_source']}
+   feedback still there: [('qa-persist', 'left while waiting for review')]
+   trace contains: HUMAN REVIEW REQUIRED=True REVIEWER ANSWER=True TESTER FEEDBACK=True
+   path: drafting -> gating -> drafting -> gating -> drafting -> gating -> drafting -> gating -> awaiting_expert -> probing -> complete

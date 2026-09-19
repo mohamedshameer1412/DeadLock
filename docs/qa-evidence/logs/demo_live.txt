@@ -1,0 +1,70 @@
+
+Study Pack Generator — Live Demo (ollama)
+--------------------------------------------------------------------------------
+Provider:  ollama
+Model:     llama3.1:latest @ http://localhost:11434
+Source:    152 words
+--------------------------------------------------------------------------------
+
+run run_570d2ae3f2d7   mode: live ollama: llama3.1:latest
+
+--  1  SOURCE  (152 words) ---------------------------------------------------
+   Photosynthesis is the process by which plants, algae and some bacteria convert light energy into
+       chemical energy stored in glucose. In plants it takes place mainly in the leaves, inside
+       organelles called chloroplasts, which contain the green pigment chlorophyll. Chlorophyll
+       absorbs light most strongly in the blue and r ...
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis is the process by which plants, algae, and some bacteria convert light energy
+         into chemical energy.
+     - Chlorophyll is the green pigment responsible for absorbing light in plants.
+     - Photosynthesis occurs mainly in the leaves of plants, inside organelles called chloroplasts.
+   Questions:
+     Q1. What is the primary function of chlorophyll in photosynthesis?
+         A. To absorb light in the blue and red parts of the spectrum   <-- answer
+         B. To reflect green light
+         C. To split water molecules
+         D. To produce glucose
+         why: Chlorophyll absorbs light most strongly in the blue and red parts of the spectrum.
+         source: "Chlorophyll absorbs light most strongly in the blue and red parts of the spectrum
+             and reflects green light,"   [verified in source, paragraph 1]
+     Q2. What is the overall result of the photosynthesis process?
+         A. Six molecules of carbon dioxide and six molecules of water are converted into one
+             molecule of glucose and six molecules of oxygen   <-- answer
+         B. One molecule of carbon dioxide and one molecule of water are converted into one molecule
+             of glucose
+         C. Six molecules of carbon dioxide and six molecules of water are converted into six
+             molecules of glucose
+         D. One molecule of carbon dioxide and one molecule of water are converted into six
+             molecules of glucose
+         why: The overall result is that six molecules of carbon dioxide and six molecules of water
+             are converted into one molecule of glucose and six molecules of oxygen.
+         source: "The overall result is that six molecules of carbon dioxide and six molecules of
+             water are converted into one molecule of glucose and six molecules of oxygen."
+             [verified in source, paragraph 2]
+     Q3. Where does the Calvin cycle take place in a plant?
+         A. In the roots of the plant
+         B. In the leaves of the plant
+         C. In the stem of the plant
+         D. In the chloroplasts of the leaves   <-- answer
+         why: The Calvin cycle takes place in the chloroplasts of the leaves.
+         source: "In the Calvin cycle, which does not need light directly, the plant uses ATP and
+             NADPH to turn carbon dioxide from the air into glucose."   [verified in source,
+             paragraph 2]
+
+   . drafting -> gating   1,849 tok   129.36s
+--  4  VALIDATOR  APPROVED  (draft 1) ----------------------------------------
+
+--  5  RESULT  APPROVED ------------------------------------------------------
+   approved by validator, draft 1, after 0 revisions
+
+   . gating -> complete   1,645 tok   49.49s
+path    drafting -> gating -> complete
+state   COMPLETE   1 draft(s), 0 revision(s), 3,494 tok, 178.9s in steps
+
+--------------------------------------------------------------------------------
+  Result: COMPLETE
+--------------------------------------------------------------------------------
+

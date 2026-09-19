@@ -1,0 +1,81 @@
+server: uvicorn web.study_ui:app  port 8090  provider=fixture  db=frontend_fixture.db
+
+================================================================================================
+PART 1 - HTTP ENDPOINTS (FRONTEND TEST, fixture provider)
+================================================================================================
+PASS  GET /  (Screen 1: input)  ::  200, textarea+button+honest mode banner
+PASS  POST /api/generate (valid source, scenario revise)  ::  {'run_id': 'run_cda39f1797c1', 'state': 'complete', 'background': False}
+PASS  GET /api/run/{id}: state, draft, verdict, summary  ::  path=drafting -> gating -> drafting -> gating -> complete drafts=2
+PASS    result record: approved by validator after 1 revision  ::  {'outcome': 'approved', 'approved_by': 'validator', 'draft': 2, 'revisions': 1, 'overrode': []}
+PASS  GET /run/{id}  content  ::  all expected content present
+PASS  GET /run/{id}/trace  content  ::  all expected content present
+PASS  GET /run/{id}/revision  content  ::  all expected content present
+PASS  stuck scenario -> AWAITING_EXPERT after 3 revisions  ::  revisions=3 escalation=max_revisions
+PASS  POST /api/run/{id}/review APPROVE -> complete, attributed to the human  ::  {'run_id': 'run_f8cbff3c35e1', 'state': 'complete'}
+PASS  POST review REJECT -> failed with human_rejected  ::  
+PASS  POST review on a finished run -> 409  ::  
+PASS  POST /api/run/{id}/resume on a finished run is harmless  ::  
+
+-- error handling
+PASS  empty source -> 422  ::  
+PASS  missing source -> 422  ::  
+PASS  invalid JSON -> 400  ::  
+PASS  unknown scenario -> 422  ::  
+PASS  too-short source -> run FAILED input_too_short (recorded, not a crash)  ::  
+PASS  injected source (screen catches it) -> FAILED source_injection, no draft  ::  
+PASS  unknown run: API 404, pages say 'not found'  ::  
+
+-- feedback
+PASS  POST feedback -> 201, attached to the right run  ::  {'run_id': 'run_cda39f1797c1', 'seq': 11, 'useful': True, 'rating': 5, 'comment': 'clear', 'confusing': '', 'tester': 'api-qa', 'draft': 2, 'run_state
+PASS  GET /api/run/{id}/feedback returns it  ::  
+PASS  GET /api/feedback returns it with run context  ::  
+PASS  feedback appears in the trace  ::  
+PASS  feedback on an unknown run -> 404  ::  
+PASS  invalid feedback (empty {}) -> 422 and nothing stored  ::  
+PASS  invalid feedback (useful as a string) -> 422 and nothing stored  ::  
+PASS  invalid feedback (rating 9) -> 422 and nothing stored  ::  
+PASS  invalid feedback (comment 1001 chars) -> 422 and nothing stored  ::  
+PASS  invalid feedback (unknown field) -> 422 and nothing stored  ::  
+PASS  stored feedback count is still exactly 1  ::  
+PASS  feedback text is HTML-escaped on the page  ::  
+
+================================================================================================
+PART 2 - REAL BROWSER (Microsoft Edge, DevTools protocol) - FRONTEND TEST
+================================================================================================
+PASS  0  a real browser is executing the page  ::  userAgent has Edg/153.0.0.0; JS engine available
+PASS  1  open the application  ::  heading + textarea present: ← New pack
+PASS  1b mode banner is honest  ::  Mode: fixture (scripted replies - no model is called)
+PASS  2  "Use sample text" click ran its JavaScript and filled the box  ::  944 characters in the textarea
+PASS  3  submit generation -> JS fetch() -> redirect to the run page  ::  location: /run/run_e71806246286
+PASS  4  generated NOTES are shown  ::  notes section with the title and first note
+PASS  5  QUIZ is shown with options, marked answer, explanation, source  ::  Q1..Q3 present: true
+PASS  6  VALIDATOR result is shown  ::  VALIDATOR APPROVED (0 issue(s))
+PASS  7a REVISION info on the content page  ::  REVISION 1 of 3
+PASS  8  FINAL state is shown  ::  OUTCOME approved by validator
+PASS  7b REVISION screen: draft 1 rejected with feedback, what changed, the limit  ::  Draft 1 REJECTED; "Changed from draft 1"; "1 of 3 revisions used"
+PASS  7c TRACE screen shows the events and the state path  ::  Path: drafting -> gating -> drafting -> gating -> complete
+PASS  9a feedback form is shown on the finished run  ::  form present
+PASS  9b submit is disabled until Yes/No is chosen  ::  disabled=true before choosing
+PASS  9c choosing "No" (real click handler) enables Submit  ::  disabled=false after click
+PASS  9d submit -> fetch POST -> page reloads showing the saved feedback  ::  Feedback so far (1) browser-qa not useful · 2/5 · 2026-09-19 17:39 · about draft 2
+PASS  10 feedback appears in the trace (after a fresh page load)  ::  TESTER FEEDBACK (browser-qa): NOT useful
+PASS  10b feedback is retrievable from the API by run id  ::  {"run_id":"run_e71806246286","seq":11,"submitted_at":1789819753.8284497,"useful":false,"rating":2,"comment":"Question 3 was too easy","confusing":"the
+PASS  11a revision limit reached -> HUMAN REVIEW REQUIRED with the review form  ::  WORKFLOW STATE HUMAN REVIEW REQUIRED
+PASS  11b clicking Approve completes the run and attributes it to the human  ::  OUTCOME approved by human:qa-lead
+PASS  12a empty source: the browser blocks submission (required field)  ::  validity.valueMissing=true; still on /
+PASS  12b too-short source: run page shows the failure reason, no fake content  ::  input_too_short
+PASS  13 no JavaScript errors were thrown in the browser during the whole session  ::  exceptionThrown/console.error count = 0
+
+BROWSER RESULT: 23/23 checks passed
+RUN_ID=run_e71806246286
+
+================================================================================================
+PART 3 - PERSISTENCE: read the SQLite file directly (no app code)
+================================================================================================
+PASS  SQLite holds the runs created above (8 runs)  ::  
+PASS  feedback rows exist in `versions` (kind='feedback')  ::  [('1797c1', 'tester:api-qa'), ('246286', 'tester:browser-qa'), ('3c35e1', 'tester:<b>x</b>')]
+PASS  the feedback typed in the BROWSER is in the database under that run id  ::  {"useful": false, "rating": 2, "comment": "Question 3 was too easy", "confusing": "the note about ATP was unclear", "tes
+PASS  the append-only trigger refuses to edit feedback  ::  
+
+HTTP/DB CHECKS: 35/35 passed
+server stopped: no LISTENING socket on the port

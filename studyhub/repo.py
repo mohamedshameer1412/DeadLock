@@ -446,3 +446,161 @@ class Repo:
             (job_id, subject_id, user_id, user_id)).fetchall()
         return [{"seq": r["seq"], "kind": r["kind"], "by": r["produced_by"], "at": r["created_at"],
                  "payload": json.loads(r["payload_json"])} for r in rows]
+
+    # ---------------------------------------------------------------- quiz attempts (Phase C)
+
+    def list_attempts(self, user_id: int, subject_id: int, limit: int = 20) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT qa.* FROM quiz_attempts qa JOIN subjects s ON s.id=qa.subject_id "
+            "WHERE qa.user_id=? AND qa.subject_id=? AND s.user_id=? "
+            "ORDER BY qa.started_at DESC LIMIT ?",
+            (user_id, subject_id, user_id, limit)).fetchall()
+        return [self._attempt(r) for r in rows]
+
+    def get_attempt(self, user_id: int, subject_id: int, attempt_id: int) -> dict | None:
+        row = self.db.execute(
+            "SELECT qa.* FROM quiz_attempts qa JOIN subjects s ON s.id=qa.subject_id "
+            "WHERE qa.id=? AND qa.user_id=? AND qa.subject_id=? AND s.user_id=?",
+            (attempt_id, user_id, subject_id, user_id)).fetchone()
+        return self._attempt(row) if row else None
+
+    def get_active_attempt(self, user_id: int, subject_id: int) -> dict | None:
+        """Return the most recent active attempt for this subject, or None."""
+        row = self.db.execute(
+            "SELECT qa.* FROM quiz_attempts qa JOIN subjects s ON s.id=qa.subject_id "
+            "WHERE qa.user_id=? AND qa.subject_id=? AND qa.is_active=1 AND s.user_id=? "
+            "ORDER BY qa.started_at DESC LIMIT 1",
+            (user_id, subject_id, user_id)).fetchone()
+        return self._attempt(row) if row else None
+
+    @staticmethod
+    def _attempt(row) -> dict:
+        if row is None:
+            return {}
+        d = dict(row)
+        for col in ("topic_ids_json", "topic_stack_json", "topics_verified_json", "verdict_log_json"):
+            if col in d and d[col]:
+                d[col.replace("_json", "")] = json.loads(d[col])
+        return d
+
+    def expire_stale_attempts(self, older_than_seconds: float) -> int:
+        """Maintenance (not user-scoped): mark abandoned active attempts as finished."""
+        return self.db.execute(
+            "UPDATE quiz_attempts SET is_active=0, finished_at=? "
+            "WHERE is_active=1 AND started_at<?",
+            (time.time(), time.time() - older_than_seconds)).rowcount
+
+    def list_attempt_answers(self, user_id: int, subject_id: int, attempt_id: int) -> list[dict]:
+        """Per-question results for one of this user's attempts."""
+        rows = self.db.execute(
+            "SELECT aa.*, mi.question, mi.options, mi.answer_index, mi.explanation, "
+            "mi.topic_path, t.name AS topic_name "
+            "FROM attempt_answers aa "
+            "JOIN quiz_attempts qa ON qa.id=aa.attempt_id "
+            "JOIN subjects s ON s.id=qa.subject_id "
+            "JOIN mcq_items mi ON mi.id=aa.item_id "
+            "LEFT JOIN topics t ON t.id=mi.topic_id "
+            "WHERE aa.attempt_id=? AND qa.user_id=? AND qa.subject_id=? AND s.user_id=? "
+            "ORDER BY aa.id",
+            (attempt_id, user_id, subject_id, user_id)).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["options"] = json.loads(d["options"])
+            out.append(d)
+        return out
+
+    # ----------------------------------------------------------- proctoring summary
+
+    def proctoring_summary(self, user_id: int, subject_id: int, attempt_id: int) -> dict:
+        """Trust score and event breakdown for one of this user's attempts."""
+        row = self.db.execute(
+            "SELECT qa.behavior_score, qa.total_tab_switches, "
+            "qa.total_fullscreen_exits, qa.total_copy_attempts "
+            "FROM quiz_attempts qa JOIN subjects s ON s.id=qa.subject_id "
+            "WHERE qa.id=? AND qa.user_id=? AND qa.subject_id=? AND s.user_id=?",
+            (attempt_id, user_id, subject_id, user_id)).fetchone()
+        if row is None:
+            return {}
+        events = self.db.execute(
+            "SELECT event_type, COUNT(*) AS n FROM quiz_proctoring_events "
+            "WHERE attempt_id=? GROUP BY event_type", (attempt_id,)).fetchall()
+        return {
+            "trust_score":          max(0, min(100, round(row["behavior_score"]))),
+            "total_tab_switches":   row["total_tab_switches"],
+            "total_fullscreen_exits": row["total_fullscreen_exits"],
+            "total_copy_attempts":  row["total_copy_attempts"],
+            "event_counts":         {e["event_type"]: e["n"] for e in events},
+        }
+
+    # ----------------------------------------------------------- topic progress
+
+    def topic_progress(self, user_id: int, subject_id: int) -> list[dict]:
+        """All topic_progress rows for this user+subject, with topic name + path."""
+        rows = self.db.execute(
+            "SELECT tp.topic_id, t.name, t.path, tp.answered, tp.correct, "
+            "tp.mastery, tp.state, tp.updated_at "
+            "FROM topic_progress tp "
+            "JOIN topics t ON t.id=tp.topic_id "
+            "JOIN subjects s ON s.id=t.subject_id "
+            "WHERE tp.user_id=? AND tp.subject_id=? AND s.user_id=? ORDER BY t.ordinal",
+            (user_id, subject_id, user_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def weak_topics(self, user_id: int, subject_id: int, limit: int = 5) -> list[dict]:
+        """Topics with lowest mastery (where answered >= 2), owned by this user."""
+        rows = self.db.execute(
+            "SELECT tp.topic_id, t.name, t.path, tp.answered, tp.correct, tp.mastery, tp.state "
+            "FROM topic_progress tp "
+            "JOIN topics t ON t.id=tp.topic_id "
+            "JOIN subjects s ON s.id=t.subject_id "
+            "WHERE tp.user_id=? AND tp.subject_id=? AND s.user_id=? AND tp.answered>=2 "
+            "ORDER BY tp.mastery ASC LIMIT ?",
+            (user_id, subject_id, user_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    # ----------------------------------------------------------- prerequisites
+
+    def list_prereqs(self, user_id: int, subject_id: int) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT tp.topic_id, t1.name AS topic_name, tp.prereq_id, "
+            "t2.name AS prereq_name, tp.confirmed, tp.origin "
+            "FROM topic_prereqs tp "
+            "JOIN topics t1 ON t1.id=tp.topic_id "
+            "JOIN topics t2 ON t2.id=tp.prereq_id "
+            "JOIN subjects s ON s.id=t1.subject_id "
+            "WHERE t1.subject_id=? AND s.user_id=? ORDER BY t1.ordinal",
+            (subject_id, user_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_prereq(self, user_id: int, subject_id: int, topic_id: int, prereq_id: int) -> bool:
+        """Create/confirm a prerequisite edge. Both topics must be in this user's subject."""
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM topics t JOIN subjects s ON s.id=t.subject_id "
+            "WHERE t.id IN (?,?) AND s.id=? AND s.user_id=?",
+            (topic_id, prereq_id, subject_id, user_id)).fetchone()[0]
+        if count != 2 or topic_id == prereq_id:
+            return False
+        # Guard against simple 2-cycle
+        cycle = self.db.execute(
+            "SELECT 1 FROM topic_prereqs WHERE topic_id=? AND prereq_id=? AND confirmed=1",
+            (prereq_id, topic_id)).fetchone()
+        if cycle:
+            return False
+        self.db.execute(
+            "INSERT INTO topic_prereqs(topic_id, prereq_id, confirmed, origin) VALUES (?,?,1,'manual') "
+            "ON CONFLICT(topic_id, prereq_id) DO UPDATE SET confirmed=1",
+            (topic_id, prereq_id))
+        return True
+
+    def delete_prereq(self, user_id: int, subject_id: int, topic_id: int, prereq_id: int) -> bool:
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM topics t JOIN subjects s ON s.id=t.subject_id "
+            "WHERE t.id=? AND s.id=? AND s.user_id=?",
+            (topic_id, subject_id, user_id)).fetchone()[0]
+        if count != 1:
+            return False
+        return self.db.execute(
+            "DELETE FROM topic_prereqs WHERE topic_id=? AND prereq_id=?",
+            (topic_id, prereq_id)).rowcount == 1
+

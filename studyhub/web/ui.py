@@ -474,3 +474,300 @@ def account_page(user: dict, csrf: str, *, key_configured: bool, allowed: list[s
 
 def not_found() -> str:
     return "<h1>Not found</h1><p class='sub'>That page does not exist, or it is not yours.</p><p><a href='/subjects'>Your subjects</a></p>"
+
+
+# ============================================================= Phase C — Quiz UI
+
+def _state_bar(answered: int, total: int, correct: int) -> str:
+    pct = int(100 * answered / total) if total else 0
+    return (
+        f"<div style='margin:.5rem 0 1rem'>"
+        f"<div style='height:8px;background:var(--border);border-radius:4px'>"
+        f"<div style='height:8px;width:{pct}%;background:var(--accent);border-radius:4px;transition:width .3s'></div>"
+        f"</div>"
+        f"<p class='note'>{answered}/{total} answered &middot; {correct} correct</p>"
+        f"</div>"
+    )
+
+
+def _proctor_js(subject_id: int, attempt_id: int, nonce: str, csrf: str) -> str:
+    """The quiz page's only script. It runs because the response's CSP carries this nonce; it sends the session token."""
+    token = __import__("json").dumps(csrf)
+    return (
+        f"<script nonce='{esc(nonce)}'>"
+        f"(function(){{"
+        f"var sid={subject_id},aid={attempt_id};"
+        f"function log(type,sev,detail){{"
+        f"fetch('/subjects/'+sid+'/quiz/attempt/'+aid+'/proctor',{{"
+        f"method:'POST',headers:{{'Content-Type':'application/json','X-CSRF-Token':{token}}},"
+        f"body:JSON.stringify({{event_type:type,details:detail||{{}}}})}})}}"
+        f"document.addEventListener('visibilitychange',function(){{if(document.hidden)log('tab_switch',60,{{}});}});"
+        f"document.addEventListener('fullscreenchange',function(){{if(!document.fullscreenElement)log('full_screen_exit',30,{{}});}});"
+        f"document.addEventListener('copy',function(e){{e.preventDefault();log('copy_attempt',20,{{}});}});"
+        f"document.addEventListener('paste',function(e){{e.preventDefault();log('paste_attempt',20,{{}});}});"
+        f"var _t0=Date.now(),_hes=0,_chosen=null;"
+        f"document.querySelectorAll('input[name=chosen]').forEach(function(r){{"
+        f"r.addEventListener('change',function(){{if(_chosen!==null)_hes++;_chosen=this.value;}});}});"
+        f"var _form=document.querySelector('form.qform');"
+        f"if(_form)_form.addEventListener('submit',function(){{"
+        f"var rt=((Date.now()-_t0)/1000).toFixed(1);"
+        f"document.getElementById('rt').value=rt;"
+        f"document.getElementById('hes').value=_hes;}});"
+        f"}})();"
+        f"</script>"
+    )
+
+
+def quiz_home_page(subject: dict, topics: list, items_count: int,
+                   attempts: list, weaks: list, active_attempt, csrf: str) -> str:
+    import time as _t
+    sid = subject["id"]
+    parts = [
+        f"<h1>Quiz &mdash; {esc(subject['name'])}</h1>",
+        f"<p class='sub'>{items_count} questions in the bank &middot; "
+        f"<a href='/subjects/{sid}/progress'>View progress</a> &middot; "
+        f"<a href='/subjects/{sid}'>&larr; Subject</a></p>",
+    ]
+    if active_attempt:
+        parts.append(
+            f"<div class='warn'>You have an active quiz in progress. "
+            f"<a href='/subjects/{sid}/quiz/attempt/{active_attempt['id']}'>Continue</a> "
+            f"or start a new one below (will abandon current).</div>"
+        )
+    if items_count == 0:
+        parts.append("<div class='error'>No questions yet. Generate some on the subject page first.</div>")
+    else:
+        parts.append(
+            f"<form method='post' action='/subjects/{sid}/quiz/start'>{csrf_field(csrf)}"
+            f"<label>Topic (optional — leave blank for whole subject)</label>"
+            f"<select name='topic_id'><option value=''>Whole subject</option>"
+            + "".join(f"<option value='{t['id']}'>{esc(t['path'])}</option>" for t in topics)
+            + "</select>"
+            f"<button class='btn' style='margin-left:.5rem'>Start quiz</button>"
+            f"</form>"
+        )
+    if weaks:
+        parts.append("<h2>Weak topics (review these)</h2><ul class='topics'>")
+        for w in weaks:
+            pct = round(w["mastery"] * 100)
+            parts.append(f"<li>{esc(w['name'])} &mdash; {pct}% mastery ({w['answered']} answered)</li>")
+        parts.append("</ul>")
+    if attempts:
+        parts.append("<h2>Recent attempts</h2>")
+        for a in attempts:
+            started = _t.strftime("%d %b %H:%M", _t.localtime(a["started_at"])) if a.get("started_at") else ""
+            c, mx = int(a.get("correct_answers", 0)), int(a.get("max_score", 0) or 0)
+            status = "active" if a["is_active"] else "done"
+            link = (f"<a href='/subjects/{sid}/quiz/attempt/{a['id']}'>Continue</a>"
+                    if a["is_active"] else f"<a href='/subjects/{sid}/quiz/result/{a['id']}'>Details</a>")
+            parts.append(
+                f"<div class='card'><b>{started}</b> &middot; {c}/{mx if mx else '?'} correct &middot; "
+                f"<span class='badge'>{status}</span> {link}</div>"
+            )
+    return "".join(parts)
+
+
+def quiz_question_page(subject: dict, attempt: dict, question_row, opts: list,
+                       csrf: str, *, error: str = "", nonce: str = "") -> str:
+    sid = subject["id"]
+    aid = attempt["id"]
+    answered = attempt.get("correct_answers", 0) + attempt.get("incorrect_answers", 0)
+    total    = max(1, int(attempt.get("max_score", 0) or 1))
+    correct  = attempt.get("correct_answers", 0)
+    letters  = ["A", "B", "C", "D"]
+    opts_html = "".join(
+        f"<li style='margin:.4rem 0'>"
+        f"<label style='font-weight:400;cursor:pointer'>"
+        f"<input type='radio' name='chosen' value='{i}' style='margin-right:.5rem'>"
+        f"<b>{letters[i]}.</b> {esc(o)}"
+        f"</label></li>"
+        for i, o in enumerate(opts[:4])
+    )
+    return (
+        f"<h1>Quiz &mdash; {esc(subject['name'])}</h1>"
+        + _state_bar(answered, total, int(correct))
+        + error_box(error)
+        + f"<div class='card'>"
+        f"<p class='note'>{esc(question_row['topic_path'] or '')}</p>"
+        f"<p><b>{esc(question_row['question'])}</b></p>"
+        f"<form class='qform' method='post' action='/subjects/{sid}/quiz/attempt/{aid}/answer'>"
+        f"{csrf_field(csrf)}"
+        f"<input type='hidden' name='item_id' value='{question_row['item_id']}'>"
+        f"<input type='hidden' name='answer_row_id' value='{question_row['answer_row_id']}'>"
+        f"<input type='hidden' id='rt' name='response_time' value='0'>"
+        f"<input type='hidden' id='hes' name='hesitations' value='0'>"
+        f"<ul style='list-style:none;padding:0;margin:.5rem 0'>{opts_html}</ul>"
+        f"<button class='btn'>Submit answer</button>"
+        f"</form>"
+        f"</div>"
+        + (_proctor_js(sid, aid, nonce, csrf) if nonce else "")
+    )
+
+
+def quiz_diagnostic_page(subject: dict, attempt: dict, result, csrf: str, nonce: str = "") -> str:
+    sid = subject["id"]
+    aid = attempt["id"]
+    return (
+        f"<h1>Diagnostic &mdash; {esc(subject['name'])}</h1>"
+        f"<p class='sub'>All multiple-choice questions done. "
+        f"Answer this to confirm understanding of <b>{esc(result.topic_name)}</b>.</p>"
+        + (f"<div class='warn'>&times; Your last answer was not sufficient. Try again.</div>" if result.verdict == "BLOCK" else "")
+        + f"<div class='card'>"
+        f"<p><b>{esc(result.question)}</b></p>"
+        f"<form method='post' action='/subjects/{sid}/quiz/attempt/{aid}/diagnostic/answer'>"
+        f"{csrf_field(csrf)}"
+        f"<input type='hidden' name='topic_id' value='{result.topic_id or 0}'>"
+        f"<input type='hidden' name='question' value='{esc(result.question)}'>"
+        f"<label>Your answer</label>"
+        f"<textarea name='answer' class='ask' required placeholder='Explain in your own words&hellip;'></textarea>"
+        f"<button class='btn'>Submit</button>"
+        f"</form>"
+        f"</div>"
+        + (_proctor_js(sid, aid, nonce, csrf) if nonce else "")
+    )
+
+
+def quiz_callback_page(subject: dict, attempt: dict, csrf: str) -> str:
+    sid = subject["id"]
+    aid = attempt["id"]
+    depth    = attempt.get("depth", 0)
+    stack    = attempt.get("topic_stack", [])
+    topic_id = stack[-1] if stack else None
+    verdicts = attempt.get("verdict_log", [])
+    last     = next((v for v in reversed(verdicts) if v.get("topic_id") == topic_id), {})
+    objs     = last.get("objections", [])
+    prereq_id = last.get("prerequisite_id")
+    obj_html = "".join(f"<li>{esc(o)}</li>" for o in objs) or "<li>No specific objections recorded.</li>"
+    return (
+        f"<h1>Prerequisite Check &mdash; {esc(subject['name'])}</h1>"
+        f"<p class='sub'>Depth: {depth}/3</p>"
+        f"<div class='card'>"
+        f"<p>Your answer did not fully demonstrate understanding. The evaluator noted:</p>"
+        f"<ul>{obj_html}</ul>"
+        f"<p>What would you like to do?</p>"
+        f"<form method='post' action='/subjects/{sid}/quiz/attempt/{aid}/callback'>"
+        f"{csrf_field(csrf)}"
+        f"<div class='row' style='margin-top:.8rem'>"
+        + (f"<button class='btn' name='decision' value='step_back'>&larr; Go to prerequisite topic</button>" if prereq_id else "")
+        + f"<button class='btn btn-sec' name='decision' value='retry'>Try this topic again</button>"
+        f"</div></form></div>"
+    )
+
+
+def quiz_result_page(subject: dict, attempt: dict, answers: list,
+                     proctor: dict, weaks: list, csrf: str) -> str:
+    sid      = subject["id"]
+    correct  = attempt.get("correct_answers", 0)
+    incorrect = attempt.get("incorrect_answers", 0)
+    total    = correct + incorrect
+    pct      = round(100 * correct / total) if total else 0
+    trust    = proctor.get("trust_score", 100)
+    bscore   = round(attempt.get("behavior_score", 100))
+    tc       = "var(--ok)" if trust >= 80 else ("var(--bad)" if trust < 50 else "#d97706")
+
+    rows_html = ""
+    for a in answers:
+        if a.get("chosen_index") is None:
+            continue
+        ok     = bool(a.get("is_correct"))
+        colour = "var(--ok)" if ok else "var(--bad)"
+        mark   = "&check;" if ok else "&times;"
+        opts_list = a.get("options", [])
+        ci  = a.get("chosen_index", -1)
+        ai  = a.get("answer_index", -1)
+        chosen  = opts_list[ci] if 0 <= ci < len(opts_list) else "—"
+        correct_opt = opts_list[ai] if 0 <= ai < len(opts_list) else "—"
+        rows_html += (
+            f"<div class='card' style='border-left:4px solid {colour}'>"
+            f"<p style='margin:0'><b>{esc(a.get('question',''))}</b></p>"
+            f"<p class='note' style='margin:.3rem 0'>Topic: {esc(a.get('topic_name',''))}</p>"
+            f"<p style='margin:.3rem 0;color:{colour}'>{mark} You: {esc(chosen)}"
+            + (f"</p><p class='note'>Correct: {esc(correct_opt)}</p>" if not ok else "</p>")
+            + (f"<p class='note'>{esc(a.get('explanation',''))}</p>" if a.get("explanation") else "")
+            + "</div>"
+        )
+
+    weaks_html = ""
+    if weaks:
+        weaks_html = "<h2>Topics to review</h2><ul class='topics'>"
+        weaks_html += "".join(f"<li>{esc(w['name'])} &mdash; {round(w['mastery']*100)}% mastery</li>" for w in weaks)
+        weaks_html += "</ul>"
+
+    return (
+        f"<h1>Result &mdash; {esc(subject['name'])}</h1>"
+        f"<div class='card'>"
+        f"<p><b>MCQ score:</b> {correct}/{total} ({pct}%)</p>"
+        f"<p><b>Behavior score:</b> {bscore}/100</p>"
+        f"<p><b>Trust score:</b> <span style='color:{tc}'>{trust}/100</span></p>"
+        f"<p class='note'>Tab switches: {proctor.get('total_tab_switches',0)} &middot; "
+        f"Fullscreen exits: {proctor.get('total_fullscreen_exits',0)} &middot; "
+        f"Copy attempts: {proctor.get('total_copy_attempts',0)}</p>"
+        f"</div>"
+        + weaks_html
+        + (f"<h2>Question breakdown</h2>{rows_html}" if rows_html else "")
+        + f"<p style='margin-top:1.5rem'>"
+        f"<a href='/subjects/{sid}/quiz'>Take another quiz</a> &middot; "
+        f"<a href='/subjects/{sid}/progress'>View progress</a> &middot; "
+        f"<a href='/subjects/{sid}'>&larr; Subject</a></p>"
+    )
+
+
+def progress_page(subject: dict, progress: list, prereqs: list, topics: list, csrf: str) -> str:
+    sid = subject["id"]
+    STATE_COLOUR = {"mastered": "var(--ok)", "weak": "var(--bad)",
+                    "learning": "#d97706", "unknown": "var(--muted)"}
+    muted = "var(--muted)"
+    rows = "".join(
+        f"<tr>"
+        f"<td style='padding:.3rem .5rem'>{esc(p['name'])}</td>"
+        f"<td style='padding:.3rem .5rem;text-align:center'>{p['answered']}</td>"
+        f"<td style='padding:.3rem .5rem;text-align:center'>{p['correct']}</td>"
+        f"<td style='padding:.3rem .5rem;color:{STATE_COLOUR.get(p['state'], muted)}'"
+        f"><b>{round(p['mastery']*100)}%</b> ({p['state']})</td>"
+        f"</tr>"
+        for p in progress
+    )
+    table = (
+        f"<table style='width:100%;border-collapse:collapse;font-size:.92rem'>"
+        f"<thead><tr style='border-bottom:1px solid var(--border)'>"
+        f"<th style='text-align:left;padding:.3rem .5rem'>Topic</th>"
+        f"<th style='padding:.3rem .5rem'>Answered</th>"
+        f"<th style='padding:.3rem .5rem'>Correct</th>"
+        f"<th style='text-align:left;padding:.3rem .5rem'>Mastery</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    ) if rows else "<p class='sub'>No answers yet &mdash; take a quiz first.</p>"
+
+    prereq_rows = "".join(
+        f"<div class='card' style='display:flex;justify-content:space-between;align-items:center'>"
+        f"<span>{esc(pr['topic_name'])} requires &rarr; {esc(pr['prereq_name'])}</span>"
+        f"<form method='post' action='/subjects/{sid}/prereq/delete' style='margin:0'>"
+        f"{csrf_field(csrf)}"
+        f"<input type='hidden' name='topic_id' value='{pr['topic_id']}'>"
+        f"<input type='hidden' name='prereq_id' value='{pr['prereq_id']}'>"
+        f"<button class='btn btn-bad' style='margin:0;padding:.3rem .8rem;font-size:.85rem'>Remove</button>"
+        f"</form></div>"
+        for pr in prereqs
+    )
+    topic_opts = "".join(
+        f"<option value='{t['id']}'>{esc(t['path'])}</option>" for t in topics if t.get("chunks")
+    )
+    add_form = (
+        f"<form method='post' action='/subjects/{sid}/prereq/set' style='margin-top:.8rem'>"
+        f"{csrf_field(csrf)}"
+        f"<div class='row'>"
+        f"<select name='topic_id'><option value=''>Topic</option>{topic_opts}</select>"
+        f"<span style='padding:.4rem'>requires &rarr;</span>"
+        f"<select name='prereq_id'><option value=''>Prerequisite</option>{topic_opts}</select>"
+        f"<button class='btn'>Add</button>"
+        f"</div></form>"
+    ) if topic_opts else ""
+
+    return (
+        f"<h1>Progress &mdash; {esc(subject['name'])}</h1>"
+        f"<p class='sub'><a href='/subjects/{sid}/quiz'>Take a quiz</a> &middot; "
+        f"<a href='/subjects/{sid}'>&larr; Subject</a></p>"
+        f"<h2>Topic mastery</h2>{table}"
+        f"<h2>Prerequisite graph</h2>"
+        + (prereq_rows or "<p class='sub'>No prerequisites set.</p>")
+        + add_form
+    )

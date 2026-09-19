@@ -1,0 +1,66 @@
+
+====================================================================================================
+LIVE OLLAMA TEST - SOURCE GROUNDING (5-fact source)
+====================================================================================================
+source facts: 5   FINAL STATE: complete
+
+{
+  "title": "The Nile River",
+  "notes": [
+    "The Nile is the longest river in Africa.",
+    "It flows northward and empties into the Mediterranean Sea.",
+    "The Nile's annual flood deposited fertile silt on surrounding farmland, supporting ancient civilizations."
+  ],
+  "questions": [
+    {
+      "question": "Where does the Nile River empty?",
+      "options": [
+        "The Red Sea",
+        "The Mediterranean Sea",
+        "The Atlantic Ocean",
+        "The Indian Ocean"
+      ],
+      "answer": "B",
+      "explanation": "The source states that the Nile flows northward and empties into the Mediterranean Sea.",
+      "source_quote": "It flows northward and empties into the Mediterranean Sea."
+    },
+    {
+      "question": "What was the effect of the Nile's annual flood?",
+      "options": [
+        "It caused widespread flooding and damage",
+        "It deposited fertile silt on surrounding farmland",
+        "It changed the course of the river",
+        "It had no effect on the surrounding area"
+      ],
+      "answer": "B",
+      "explanation": "The source states that the Nile's annual flood deposited fertile silt on surrounding farmland.",
+      "source_quote": "The river's annual flood once deposited fertile silt on the surrounding farmland."
+    },
+    {
+      "question": "What was built in 1970 to control the flooding of the Nile?",
+      "options": [
+        "The Aswan Low Dam",
+        "The Aswan High Dam",
+        "The Nile River Bridge",
+        "The Egyptian Waterworks"
+      ],
+      "answer": "B",
+      "explanation": "The source states that the Aswan High Dam was completed in 1970.",
+      "source_quote": "The Aswan High Dam, completed in 1970, now controls the flooding."
+    }
+  ]
+}
+
+PER-QUESTION GROUNDING (auditor = real llama3.1, reference = code):
+  Q1: question supported=True  correct-answer supported=True (key B, auditor B)  explanation supported=True  reference valid=True
+  Q2: question supported=True  correct-answer supported=True (key B, auditor B)  explanation supported=True  reference valid=True
+  Q3: question supported=True  correct-answer supported=True (key B, auditor B)  explanation supported=True  reference valid=True
+
+  Question supported by source:       3/3
+  Correct answer supported:           3/3
+  Explanation supported:              3/3
+  Reference valid:                    3/3
+  Unsupported: question 0/3, answer 0/3, explanation 0/3, reference 0/3
+
+  (Manual QA review of the same output follows in the report.)
+  path: drafting -> gating -> complete

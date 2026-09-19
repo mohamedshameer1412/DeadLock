@@ -19,3 +19,6 @@ DeadLock-main*.zip
 
 # private working note for handing this project to another AI: never commit
 AI_HANDOFF.md
+
+# pytest temp folder for environments where the system temp is not writable
+.pytest_tmp/

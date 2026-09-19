@@ -1,0 +1,93 @@
+
+====================================================================================================
+FIXTURE TEST - ORCHESTRATOR SCENARIOS 1-5  (scripted replies; the code checks are real)
+====================================================================================================
+
+SCENARIO 1 [FIXTURE]  valid source -> generated -> approved -> COMPLETE
+   final: complete   LLM calls: generate=1 audit=1
+   drafting
+   -> gating
+   -> complete
+
+SCENARIO 2 [FIXTURE]  invalid first generation -> rejected -> revised -> approved -> COMPLETE
+   final: complete   revisions: 1
+   drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> complete
+   VERSION 1 quotes: ['inside organelles called chloroplasts', 'Oxygen is released through the roots of the plant.', 'the plant uses ATP and NADPH to turn carbon dioxid']
+   VALIDATOR 1: REJECTED [('code', 'quote_not_in_source', 'questions[1]'), ('model', 'not_exactly_one_correct', 'questions[2]')]
+   FEEDBACK reached the reviser: True
+   VERSION 2 changed: ['questions[1]', 'questions[2]'] | unchanged: ['questions[0]']
+   VALIDATOR 2: APPROVED
+
+SCENARIO 3 [FIXTURE]  repeated failures -> revision limit -> AWAITING_EXPERT
+   final: awaiting_expert   drafts: 4   generate calls: 4
+   drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> awaiting_expert
+
+SCENARIO 3b [FIXTURE] identical output twice -> AWAITING_EXPERT (no infinite loop)
+   final: awaiting_expert   generate calls: 2   escalation: repeated_output
+   drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> awaiting_expert
+
+SCENARIO 4 [FIXTURE]  malformed model response -> error handling
+   final: failed   failure record: {'kind': 'model', 'detail': "No model produced valid StudyPack after a repair pass. Last reply began: 'Sure! {'"}
+   drafting
+   -> failed
+
+SCENARIO 5 [FIXTURE]  provider raises 'unavailable' -> graceful failure
+   final: failed   failure record: {'kind': 'model', 'detail': 'Cannot connect to Ollama at http://localhost:11434'}
+   drafting
+   -> failed
+
+====================================================================================================
+REVISION LIMIT - MAX_REVISIONS = 3 cannot be bypassed  [FIXTURE]
+====================================================================================================
+MAX_REVISIONS = 3
+
+1. Generator always fails -> drafts: 4 (1 first + 3 revisions), validator rejections: 4
+   revision 1 -> draft 2, revision 2 -> draft 3, revision 3 -> draft 4, then: awaiting_expert
+   drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> drafting
+   -> gating
+   -> awaiting_expert
+2. advance() called 3 more times on the parked run -> state awaiting_expert; generator calls 4 -> 4 (no new call)
+3. 'resume' with an empty script (would explode if a model were called) -> awaiting_expert
+4. ATTEMPTED BYPASS by tampering with the database (state forced back to DRAFTING):
+   result: awaiting_expert; extra drafts generated: 1; escalation reasons: ['max_revisions', 'max_revisions']
+   -> a tampered run gets ONE more attempt and is parked again immediately (the limit is derived
+      from the recorded verdict history, so it re-fires); it does not loop.
+5. No infinite loop: max_steps fence on the runner itself:
+   a flow that cycles forever -> failed; failure: max_steps
+
+====================================================================================================
+FIXTURE PROVIDER - must work with no internet, no Ollama, no OpenRouter, no key
+====================================================================================================
+Traceback (most recent call last):
+  File "C:\Users\SHAMEER\AppData\Local\Temp\claude\d--projects-DeadLock\bd754d1f-70b1-4172-b9de-c081bd507e00\scratchpad\qa_offline.py", line 329, in <module>
+    globals()[step]()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\SHAMEER\AppData\Local\Temp\claude\d--projects-DeadLock\bd754d1f-70b1-4172-b9de-c081bd507e00\scratchpad\qa_offline.py", line 319, in fixture_provider
+    st, run, final, _ = fixture_run("fixprov", fp, cfg=cfg)
+                        ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SHAMEER\AppData\Local\Temp\claude\d--projects-DeadLock\bd754d1f-70b1-4172-b9de-c081bd507e00\scratchpad\qa_offline.py", line 36, in fixture_run
+    call = factory() if callable(factory) else factory
+           ~~~~~~~^^
+TypeError: FixtureProvider.__call__() missing 3 required keyword-only arguments: 'settings', 'budget', and 'messages'

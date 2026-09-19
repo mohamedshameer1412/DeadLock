@@ -1,0 +1,66 @@
+
+====================================================================================================
+LIVE OLLAMA TEST - STUDY GENERATOR, ALONE  (real llama3.1:latest; no validator involved)
+====================================================================================================
+model: llama3.1:latest   source (29 words): Photosynthesis is the process by which green plants convert light energy into chemical energy. Chlorophyll absorbs light energy. Carbon dioxide and water are used to produce glucose and oxygen.
+
+generation OK in 76s, 1535 tokens
+
+ACTUAL STRUCTURED OUTPUT:
+{
+  "title": "Photosynthesis",
+  "notes": [
+    "Photosynthesis is a process that converts light energy into chemical energy.",
+    "Green plants are responsible for photosynthesis.",
+    "Chlorophyll plays a crucial role in absorbing light energy."
+  ],
+  "questions": [
+    {
+      "question": "What is the primary function of chlorophyll in photosynthesis?",
+      "options": [
+        "To produce glucose and oxygen",
+        "To absorb light energy",
+        "To convert chemical energy into light energy",
+        "To release oxygen into the atmosphere"
+      ],
+      "answer": "B",
+      "explanation": "Chlorophyll absorbs light energy, which is then used to power photosynthesis.",
+      "source_quote": "Chlorophyll absorbs light energy."
+    },
+    {
+      "question": "What are the byproducts of photosynthesis?",
+      "options": [
+        "Glucose and water",
+        "Glucose and oxygen",
+        "Water and carbon dioxide",
+        "Carbon dioxide and light energy"
+      ],
+      "answer": "B",
+      "explanation": "Photosynthesis produces glucose and oxygen as byproducts.",
+      "source_quote": "Carbon dioxide and water are used to produce glucose and oxygen."
+    },
+    {
+      "question": "What is the source of energy for photosynthesis?",
+      "options": [
+        "Chemical energy",
+        "Light energy",
+        "Water energy",
+        "Carbon dioxide energy"
+      ],
+      "answer": "B",
+      "explanation": "Photosynthesis converts light energy into chemical energy.",
+      "source_quote": "Photosynthesis is the process by which green plants convert light energy into chemical energy."
+    }
+  ]
+}
+
+STRUCTURAL / GROUNDING CHECKS (code):
+  questions produced: 3   in 3..5? True
+  notes produced: 3
+  note[0] content words found in source: 5/6 (83%)  [lexical heuristic]  Photosynthesis is a process that converts light energy into chemical e
+  note[1] content words found in source: 3/4 (75%)  [lexical heuristic]  Green plants are responsible for photosynthesis.
+  note[2] content words found in source: 3/7 (42%)  [lexical heuristic]  Chlorophyll plays a crucial role in absorbing light energy.
+  Q1: 4 options=True  distinct=True  exactly-one-key=True (key B)  explanation=True  reference_verbatim=True
+  Q2: 4 options=True  distinct=True  exactly-one-key=True (key B)  explanation=True  reference_verbatim=True
+  Q3: 4 options=True  distinct=True  exactly-one-key=True (key B)  explanation=True  reference_verbatim=True
+  checks.check_pack issues: none

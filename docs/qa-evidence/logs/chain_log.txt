@@ -1,0 +1,13 @@
+start gen 17:17:59
+end   gen exit=0 17:19:16
+start validator 17:19:16
+end   validator exit=1 17:24:56
+start revision 17:24:56
+end   revision exit=0 17:28:01
+start scenario1 17:28:01
+end   scenario1 exit=0 17:30:19
+start grounding 17:30:19
+end   grounding exit=0 17:32:56
+start injection 17:32:56
+end   injection exit=0 17:40:58
+CHAIN DONE 17:40:58

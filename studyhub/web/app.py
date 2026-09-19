@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from studyhub import auth, ingest, mcq, models, qa, retrieval, settings
 from studyhub import db as studydb
+from studyhub import scoring, quiz_flow, quiz_agents
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import ui
 
@@ -36,6 +37,7 @@ async def _lifespan(_app):
     try:
         Repo(store.db).expire_pending_doubts(0)
         Repo(store.db).expire_pending_mcq_jobs(0)
+        Repo(store.db).expire_stale_attempts(3600)   # Phase C: mark abandoned attempts finished
     finally:
         store.close()
     yield
@@ -57,9 +59,10 @@ async def security_headers(request: Request, call_next):
                          f"{settings.max_upload_bytes() / 1048576:.3g} MB per file.</p>", status=413)   # before parsing the body
     else:
         response = await call_next(request)
+    nonce = getattr(request.state, "script_nonce", "")          # only the quiz question page sets one
     response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; "
-        "frame-ancestors 'none'; base-uri 'none'")
+        "default-src 'self'; style-src 'unsafe-inline'; script-src " + (f"'nonce-{nonce}'" if nonce else "'none'")
+        + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -591,3 +594,330 @@ def mcq_delete(request: Request, subject_id: str, item_id: str, csrf: str = Form
         if not Repo(db).delete_mcq(user["id"], row["id"], _int(item_id) or -1):
             return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
     return RedirectResponse(f"/subjects/{row['id']}/mcq", status_code=303)
+
+
+# =========================================================================== Phase C — Quiz taking
+
+
+def _get_provider(user, db):
+    """Return a callable(messages, schema) -> parsed pydantic model.
+    Uses the first available tier (local Ollama). Returns None if no tiers available.
+    """
+    from slice.budget import Budget
+    tiers, _ = tier_factory(db, user)
+    if not tiers:
+        return None
+    tier = tiers[0]
+
+    def _call(messages, schema, timeout=90):
+        store = studydb.open_db()
+        try:
+            budget = Budget(store, "quiz-agent", tier.settings)
+            return tier.provider(
+                settings=tier.settings, budget=budget,
+                messages=messages, schema=schema,
+                model=tier.model, step="quiz_agent", timeout=float(timeout))
+        finally:
+            store.close()
+
+    return _call
+
+
+@app.get("/subjects/{subject_id}/quiz")
+def quiz_home(request: Request, subject_id: str):
+    """Show quiz start page: pick topic, see past attempts, see weak topics."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        topics     = [t for t in repo.list_topics(user["id"], row["id"]) if t["chunks"]]
+        items_count = len(repo.list_mcq(user["id"], row["id"]))
+        attempts   = repo.list_attempts(user["id"], row["id"], limit=5)
+        weaks      = repo.weak_topics(user["id"], row["id"])
+        active_att = repo.get_active_attempt(user["id"], row["id"])
+        return _html("Quiz", ui.quiz_home_page(row, topics, items_count, attempts, weaks, active_att, session.csrf),
+                     user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/quiz/start")
+def quiz_start(request: Request, subject_id: str, topic_id: str = Form(""), csrf: str = Form("")):
+    """Create a new quiz attempt and redirect to the first question."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+
+        # Abandon any existing active attempt
+        active = repo.get_active_attempt(user["id"], row["id"])
+        if active:
+            db.execute("UPDATE quiz_attempts SET is_active=0, finished_at=? WHERE id=?",
+                       (import_time(), active["id"]))
+
+        tid = _int(topic_id.strip()) if topic_id.strip() else None
+        items = repo.list_mcq(user["id"], row["id"], topic_id=tid)
+        if not items:
+            return _subject_html(db, user, session, row, status=400,
+                                 error="Generate some questions first before taking a quiz.")
+
+        import random, time as _t
+        rng = random.Random(int(_t.time()))
+        rng.shuffle(items)
+        item_ids = [it["id"] for it in items[:20]]   # cap at 20 Qs per session
+
+        root_topic_id = tid or (items[0]["topic_id"] if items[0]["topic_id"] else None)
+
+        attempt = quiz_flow.start_session(
+            db, user["id"], row["id"],
+            root_topic_id=root_topic_id or -1,
+            item_ids=item_ids,
+            attempt_number=(len(repo.list_attempts(user["id"], row["id"], limit=100)) + 1),
+        )
+        if attempt is None:
+            return _subject_html(db, user, session, row, status=400, error="Could not start quiz. Try again.")
+
+    return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{attempt['id']}", status_code=303)
+
+
+def import_time():
+    import time
+    return time.time()
+
+
+@app.get("/subjects/{subject_id}/quiz/attempt/{attempt_id}")
+def quiz_attempt(request: Request, subject_id: str, attempt_id: str, error: str = ""):
+    """QUESTIONING state — show the current MCQ question."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        att = repo.get_attempt(user["id"], row["id"], _int(attempt_id) or -1)
+        if att is None:
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+        if not att["is_active"]:
+            return RedirectResponse(f"/subjects/{row['id']}/quiz/result/{att['id']}", status_code=303)
+
+        # Get next unanswered MCQ item
+        unanswered = db.execute(
+            "SELECT aa.id AS answer_row_id, aa.item_id, mi.question, mi.options, mi.topic_path "
+            "FROM attempt_answers aa JOIN mcq_items mi ON mi.id=aa.item_id "
+            "WHERE aa.attempt_id=? AND aa.answered_at IS NULL ORDER BY aa.id LIMIT 1",
+            (att["id"],)).fetchone()
+
+        if unanswered is None:
+            # All MCQs answered — run backward-pass check via quiz_flow
+            provider_fn = _get_provider(user, db)
+
+            def _spot(topic_id, topic_name, difficulty, prior_objections, **_):
+                if provider_fn is None:
+                    return quiz_agents.stub_spot(topic_id, topic_name, difficulty, prior_objections)
+                return quiz_agents.spot_agent(topic_id, topic_name, difficulty, prior_objections, provider_fn)
+
+            result = quiz_flow.current_question(db, user["id"], att["id"], _spot)
+            if result.state == "complete":
+                scoring.finish_attempt(db, user["id"], att["id"])
+                return RedirectResponse(f"/subjects/{row['id']}/quiz/result/{att['id']}", status_code=303)
+            if result.state == "backward_pass":
+                return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{att['id']}/callback", status_code=303)
+            # questioning — show the adaptive question (handled below with the diagnostic route)
+            nonce = request.state.script_nonce = secrets.token_urlsafe(16)
+            return _html("Quiz — Diagnostic", ui.quiz_diagnostic_page(row, att, result, session.csrf, nonce=nonce),
+                         user=user, csrf=session.csrf)
+
+        import json
+        opts = json.loads(unanswered["options"]) if isinstance(unanswered["options"], str) else unanswered["options"]
+        nonce = request.state.script_nonce = secrets.token_urlsafe(16)
+        return _html("Quiz", ui.quiz_question_page(
+            row, att, unanswered, opts, session.csrf, error=error, nonce=nonce),
+            user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/quiz/attempt/{attempt_id}/answer")
+def quiz_answer(
+    request: Request, subject_id: str, attempt_id: str,
+    answer_row_id: str = Form(""), item_id: str = Form(""),
+    chosen: str = Form(""), response_time: str = Form("0"),
+    hesitations: str = Form("0"), csrf: str = Form(""),
+):
+    """Submit one MCQ answer, update scoring."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+
+        try:
+            rt    = max(0.0, float(response_time))
+            hes   = max(0, int(hesitations))
+            cidx  = int(chosen) if chosen.isdigit() else None
+        except (ValueError, TypeError):
+            rt, hes, cidx = 0.0, 0, None
+
+        recorded = scoring.record_answer(db, user["id"], _int(attempt_id) or -1, _int(item_id) or -1,
+                                         cidx, rt, hes, answer_row_id=_int(answer_row_id))
+
+    if recorded is None:
+        return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{int(attempt_id)}?error=That+answer+could+not+be+recorded.",
+                                status_code=303)
+    return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{int(attempt_id)}", status_code=303)
+
+
+@app.post("/subjects/{subject_id}/quiz/attempt/{attempt_id}/diagnostic/answer")
+def quiz_diagnostic_answer(
+    request: Request, subject_id: str, attempt_id: str,
+    question: str = Form(""), answer: str = Form(""),
+    topic_id: str = Form(""), csrf: str = Form(""),
+):
+    """Submit the open-ended diagnostic answer for evaluation."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        att = Repo(db).get_attempt(user["id"], row["id"], _int(attempt_id) or -1)
+        if att is None or not att["is_active"]:
+            return RedirectResponse(f"/subjects/{row['id']}/quiz", status_code=303)
+
+        provider_fn = _get_provider(user, db)
+        graph = __import__("studyhub.prereq", fromlist=["load_graph"]).load_graph(db, row["id"])
+
+        def _evaluate(topic_id, topic_name, question, student_answer, prior_verdicts, prereq_id, graph, **_):
+            if provider_fn is None:
+                return quiz_agents.stub_gate(topic_id, topic_name, question, student_answer, prior_verdicts, prereq_id, graph)
+            return quiz_agents.gate_agent(topic_id, topic_name, question, student_answer, prior_verdicts, prereq_id, graph, provider_fn)
+
+        result = quiz_flow.submit_answer(db, user["id"], att["id"], question, answer.strip(), _evaluate)
+        if result.state == "complete":
+            scoring.finish_attempt(db, user["id"], att["id"])        # inside the block: the connection is still open
+
+    if result.state == "complete":
+        return RedirectResponse(f"/subjects/{row['id']}/quiz/result/{attempt_id}", status_code=303)
+    if result.state == "backward_pass":
+        return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{attempt_id}/callback", status_code=303)
+    return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{attempt_id}", status_code=303)
+
+
+@app.get("/subjects/{subject_id}/quiz/attempt/{attempt_id}/callback")
+def quiz_callback(request: Request, subject_id: str, attempt_id: str):
+    """BACKWARD_PASS state — show the step-back/retry choice."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        att = Repo(db).get_attempt(user["id"], row["id"], _int(attempt_id) or -1)
+        if att is None or not att["is_active"]:
+            return RedirectResponse(f"/subjects/{row['id']}/quiz", status_code=303)
+        return _html("Quiz — Prerequisite Check",
+                     ui.quiz_callback_page(row, att, session.csrf), user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/quiz/attempt/{attempt_id}/callback")
+def quiz_callback_resolve(
+    request: Request, subject_id: str, attempt_id: str,
+    decision: str = Form("retry"), csrf: str = Form(""),
+):
+    """BACKWARD_PASS decision: step_back | retry | timeout."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        d = decision if decision in ("step_back", "retry", "timeout") else "retry"
+        quiz_flow.resolve_callback(db, user["id"], _int(attempt_id) or -1, d)
+    return RedirectResponse(f"/subjects/{row['id']}/quiz/attempt/{attempt_id}", status_code=303)
+
+
+@app.post("/subjects/{subject_id}/quiz/attempt/{attempt_id}/proctor")
+async def quiz_proctor(request: Request, subject_id: str, attempt_id: str):
+    """Receive a proctoring event from the quiz page script. Needs the session CSRF token in X-CSRF-Token."""
+    import json as _json
+    ctx = None
+    with _open() as db:
+        si = _signed_in(request, db)
+        if si is None:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"ok": False}, status_code=401)
+        user, session = si
+        from fastapi.responses import JSONResponse
+        if not auth.same_token(request.headers.get("x-csrf-token"), session.csrf):
+            return JSONResponse({"ok": False}, status_code=403)          # a page on another site must not be able to post events
+        row = Repo(db).get_subject(user["id"], _int(subject_id) or -1)
+        if row is None:
+            return JSONResponse({"ok": False}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            return JSONResponse({"ok": False}, status_code=400)
+        event_type = str(body.get("event_type", ""))
+        details    = body.get("details", {})
+        ok = scoring.record_proctoring_event(db, user["id"], _int(attempt_id) or -1, event_type, details)
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"ok": ok})
+
+
+@app.get("/subjects/{subject_id}/quiz/result/{attempt_id}")
+def quiz_result(request: Request, subject_id: str, attempt_id: str):
+    """COMPLETE — show score, trust score, weak topics, per-question breakdown."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        att = repo.get_attempt(user["id"], row["id"], _int(attempt_id) or -1)
+        if att is None:
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+        answers  = repo.list_attempt_answers(user["id"], row["id"], att["id"])
+        proctor  = repo.proctoring_summary(user["id"], row["id"], att["id"])
+        weaks    = repo.weak_topics(user["id"], row["id"])
+        return _html("Quiz Result", ui.quiz_result_page(row, att, answers, proctor, weaks, session.csrf),
+                     user=user, csrf=session.csrf)
+
+
+@app.get("/subjects/{subject_id}/progress")
+def subject_progress(request: Request, subject_id: str):
+    """Per-topic mastery view for this subject."""
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        progress = repo.topic_progress(user["id"], row["id"])
+        prereqs  = repo.list_prereqs(user["id"], row["id"])
+        topics   = repo.list_topics(user["id"], row["id"])
+        return _html("Progress", ui.progress_page(row, progress, prereqs, topics, session.csrf),
+                     user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/prereq/set")
+def prereq_set(request: Request, subject_id: str,
+               topic_id: str = Form(""), prereq_id: str = Form(""), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        Repo(db).set_prereq(user["id"], row["id"], _int(topic_id) or -1, _int(prereq_id) or -1)
+    return RedirectResponse(f"/subjects/{row['id']}/progress", status_code=303)
+
+
+@app.post("/subjects/{subject_id}/prereq/delete")
+def prereq_delete(request: Request, subject_id: str,
+                  topic_id: str = Form(""), prereq_id: str = Form(""), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        Repo(db).delete_prereq(user["id"], row["id"], _int(topic_id) or -1, _int(prereq_id) or -1)
+    return RedirectResponse(f"/subjects/{row['id']}/progress", status_code=303)
+

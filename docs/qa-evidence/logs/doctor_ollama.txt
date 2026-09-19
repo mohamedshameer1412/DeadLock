@@ -1,0 +1,17 @@
+
+agentic-slice-kit doctor
+------------------------------------------------------------
+[ warn ] .env not found - using environment variables and defaults
+[ skip ] OPENROUTER_API_KEY - not needed for LLM_PROVIDER=ollama
+[ skip ] credit check - needs a key
+[ skip ] cloud model reachability - not needed for LLM_PROVIDER=ollama
+[  ok  ] LLM_PROVIDER=ollama
+[  ok  ] Ollama running, model 'llama3.1:latest' available
+[  ok  ] sqlite-vec v0.1.9 loads
+[ warn ] cloudflared not installed
+         You will not be able to share a public demo URL from this codespace.
+[ warn ] embedding model not baked in
+         First ingest will download ~80MB. Fine on good wifi, painful otherwise.
+------------------------------------------------------------
+no failures, 3 check(s) skipped for want of a key
+

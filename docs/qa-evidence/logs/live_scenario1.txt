@@ -1,0 +1,55 @@
+
+====================================================================================================
+LIVE OLLAMA TEST - ORCHESTRATOR SCENARIO 1: valid source -> generated -> approved -> COMPLETE
+====================================================================================================
+FINAL STATE: complete after 137s
+
+run run_8ce2c54586e8   mode: QA scenario 1 (live ollama)
+
+--  1  SOURCE  (29 words) ----------------------------------------------------
+   Photosynthesis is the process by which green plants convert light energy into chemical energy.
+       Chlorophyll absorbs light energy. Carbon dioxide and water are used to produce glucose and
+       oxygen.
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis is a process that converts light energy into chemical energy.
+     - Green plants are responsible for photosynthesis.
+     - Chlorophyll plays a crucial role in absorbing light energy.
+   Questions:
+     Q1. What is the primary function of chlorophyll in photosynthesis?
+         A. To produce glucose and oxygen
+         B. To absorb light energy   <-- answer
+         C. To convert chemical energy into light energy
+         D. To release oxygen into the atmosphere
+         why: Chlorophyll absorbs light energy, which is then used to power photosynthesis.
+         source: "Chlorophyll absorbs light energy."   [verified in source, paragraph 1]
+     Q2. What are the byproducts of photosynthesis?
+         A. Glucose and water
+         B. Glucose and oxygen   <-- answer
+         C. Water and carbon dioxide
+         D. Carbon dioxide and light energy
+         why: Photosynthesis produces glucose and oxygen as byproducts.
+         source: "Carbon dioxide and water are used to produce glucose and oxygen."   [verified in
+             source, paragraph 1]
+     Q3. What is the source of energy for photosynthesis?
+         A. Chemical energy
+         B. Light energy   <-- answer
+         C. Water energy
+         D. Carbon dioxide energy
+         why: Photosynthesis converts light energy into chemical energy.
+         source: "Photosynthesis is the process by which green plants convert light energy into
+             chemical energy."   [verified in source, paragraph 1]
+
+   . drafting -> gating   1,535 tok   96.11s
+--  4  VALIDATOR  APPROVED  (draft 1) ----------------------------------------
+
+--  5  RESULT  APPROVED ------------------------------------------------------
+   approved by validator, draft 1, after 0 revisions
+
+   . gating -> complete   1,374 tok   41.29s
+path    drafting -> gating -> complete
+state   COMPLETE   1 draft(s), 0 revision(s), 2,909 tok, 137.4s in steps
+
+LLM calls: [('generate', 96.1, 1535), ('audit', 41.3, 1374)]
