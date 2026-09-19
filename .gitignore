@@ -16,3 +16,6 @@ data/
 
 # a downloaded copy of the project (contains a .env and a virtualenv): never commit
 DeadLock-main*.zip
+
+# private working note for handing this project to another AI: never commit
+AI_HANDOFF.md
