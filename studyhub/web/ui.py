@@ -5,7 +5,7 @@ import html
 import re
 import time
 
-from ..explain import step_text, verification_rows
+from ..explain import mcq_step_text, step_text, verification_rows
 
 CSS = (
     ":root{color-scheme:light dark;--accent:#0d5c5f;--link:#0d5c5f;--bad:#b91c1c;--ok:#15803d;--border:#d4d4d8;--muted:#6b7280}"
@@ -41,6 +41,8 @@ CSS = (
     ".ok{color:var(--ok)}.claims li{margin:.6rem 0}.cite{font-size:.8rem;vertical-align:super}"
     "details{margin:1rem 0}summary{cursor:pointer;font-weight:600}"
     ".step{font-size:.88rem;margin:.35rem 0;padding-left:.6rem;border-left:2px solid var(--border)}.step.ok{border-left-color:var(--ok)}"
+    "select,input[type=number]{font:inherit;padding:.45rem .6rem;border:1px solid #a1a1aa;border-radius:6px;background:transparent;color:inherit;max-width:100%}"
+    "select option{color:#111}.opts{margin:.5rem 0;padding-left:1.6rem}.opts li{margin:.2rem 0}"
     "textarea.ask{min-height:4rem}.card:target{outline:2px solid var(--accent)}"
     "@media (prefers-color-scheme:dark){:root{--link:#5eead4;--muted:#a1a1aa;--bad:#f87171;--ok:#4ade80}"
     ".error{background:#450a0a;border-color:#7f1d1d}.warn{background:#3b2a05;border-color:#92400e;color:#fde68a}}"
@@ -148,9 +150,86 @@ def materials_section(subject_id: int, documents: list[dict], topics: list[dict]
     )
 
 
+def mcq_section(subject_id: int, csrf: str, topics: list[dict], bank_size: int, *, has_material: bool,
+                error: str | None = None) -> str:
+    sid = int(subject_id)
+    if not has_material:
+        return ("<h2>Multiple-choice questions</h2><p class='note'>Upload some material first. Questions are written only from what you "
+                "upload to this subject.</p>")
+    options = "<option value=''>Whole subject</option>" + "".join(
+        f"<option value='{int(t['id'])}'>{esc(t['path'])} ({int(t['chunks'])} passages)</option>" for t in topics if t["chunks"])
+    return (
+        "<h2>Multiple-choice questions</h2>"
+        "<p class='note'>Four-option questions written from this subject's materials only. Every question keeps the exact words it is "
+        "based on, is checked by the app, and is answered independently before it is kept. Nothing is made up if no model is available.</p>"
+        + error_box(error)
+        + f"<form method='post' action='/subjects/{sid}/mcq/generate'>{csrf_field(csrf)}"
+        "<label for='topic'>Topic</label>"
+        f"<select id='topic' name='topic'>{options}</select>"
+        "<label for='count'>How many (1 to 10)</label>"
+        "<input type='number' id='count' name='count' min='1' max='10' value='5' required style='width:6rem'>"
+        "<button class='btn'>Generate questions</button></form>"
+        f"<p class='note'><a href='/subjects/{sid}/mcq'>Open the question bank</a> ({int(bank_size)} question{'s' if bank_size != 1 else ''})</p>"
+    )
+
+
+def mcq_card(sid: int, item: dict, n: int, csrf: str | None = None) -> str:
+    letters = "ABCD"
+    opts = "".join(f"<li>{esc(o)}</li>" for o in item["options"])
+    answer = f"{letters[item['answer_index']]}) {item['options'][item['answer_index']]}"
+    source = (esc(item["doc_title"]) + (f" &middot; section: {esc(item['heading_path'])}" if item["heading_path"] else "")
+              + (f" &middot; {esc(_where(item['page_start'], item['page_end']))}" if item["page_start"] is not None else ""))
+    checked = ("&#10003; Answered correctly by an independent reader who saw only the passages, not the key."
+               if item["solver"] == "agreed" else "Not independently checked (the reader step was unavailable).")
+    delete = (f"<form method='post' action='/subjects/{sid}/mcq/{int(item['id'])}/delete' style='margin-top:.5rem'>{csrf_field(csrf)}"
+              "<button class='btn btn-sec' style='margin:0'>Delete this question</button></form>") if csrf else ""
+    return (f"<div class='card' id='q{int(item['id'])}'><b>{n}. {esc(item['question'])}</b>"
+            f"<ol type='A' class='opts'>{opts}</ol>"
+            f"<details><summary>Show answer and source</summary>"
+            f"<div class='note ok'><b>Correct answer: {esc(answer)}</b></div>"
+            + (f"<div>{esc(item['explanation'])}</div>" if item["explanation"] else "")
+            + f"<div class='note'>Source: {source}</div><blockquote>{esc(item['quote'])}</blockquote>"
+            f"<div class='note ok'>&#10003; These exact words were found in your material (checked by the app).</div>"
+            f"<div class='note ok'>{checked}</div></details>{delete}</div>")
+
+
+def mcq_bank_page(subject: dict, items: list[dict], topics: list[dict], current_topic: int | None, csrf: str) -> str:
+    sid = int(subject["id"])
+    tabs = "".join(
+        f"<a href='/subjects/{sid}/mcq?topic={int(t['id'])}'>{'<b>' if t['id'] == current_topic else ''}{esc(t['path'])}{'</b>' if t['id'] == current_topic else ''}</a> &middot; "
+        for t in topics if t["chunks"])
+    body = "".join(mcq_card(sid, it, i, csrf) for i, it in enumerate(items, start=1)) or (
+        "<p class='note'>No questions yet. Use <b>Generate questions</b> on the subject page.</p>")
+    return (f"<p class='note'><a href='/subjects/{sid}'>&larr; {esc(subject['name'])}</a></p><h1>Question bank</h1>"
+            f"<p class='sub'>{len(items)} multiple-choice question{'s' if len(items) != 1 else ''}. Answers are hidden until you open them.</p>"
+            f"<p class='note'><a href='/subjects/{sid}/mcq'>All topics</a> &middot; {tabs}</p>{body}")
+
+
+def mcq_job_page(subject: dict, job: dict, items: list[dict], trace: list[dict], csrf: str) -> str:
+    sid, jid = int(subject["id"]), int(job["id"])
+    head = f"<p class='note'><a href='/subjects/{sid}'>&larr; {esc(subject['name'])}</a></p><h1>Writing questions</h1><p class='sub'>{esc(job['scope'])}</p>"
+    if job["status"] == "pending":
+        return ("<meta http-equiv='refresh' content='4'>" + head +
+                "<div class='card'><b>Reading your materials and writing questions…</b><div class='note'>A model running on this computer "
+                "writes each batch and then a second pass answers every question without seeing the key. This can take a few minutes. "
+                "This page refreshes by itself.</div></div>")
+    label = {"done": "Finished", "failed": "Could not finish"}[job["status"]]
+    body = (f"<p><span class='badge {'ok' if job['produced'] else ''}'>{label}: {int(job['produced'])} of {int(job['requested'])} questions kept</span></p>")
+    if job["reason"]:
+        body += f"<div class='warn'>{esc(job['reason'])}</div>"
+    if job["rejected"]:
+        body += (f"<p class='note'>{int(job['rejected'])} candidate question{'s' if job['rejected'] != 1 else ''} failed a check and "
+                 f"{'were' if job['rejected'] != 1 else 'was'} not kept.</p>")
+    cards = "".join(mcq_card(sid, it, i, csrf) for i, it in enumerate(items, start=1))
+    steps = "".join(f"<div class='step'>{esc(mcq_step_text(s))}</div>" for s in trace)
+    return (head + body + cards + f"<p><a href='/subjects/{sid}/mcq'>Open the question bank</a></p>"
+            + (f"<details><summary>How these were produced</summary><p class='note'>Every step is recorded in an append-only log. "
+               f"Models propose; the app checks and decides.</p>{steps}</details>" if steps else ""))
+
+
 def subject_page(subject: dict, csrf: str, *, error: str | None = None, documents: list[dict] | None = None,
                  topics: list[dict] | None = None, upload_error: str | None = None, doubts: list[dict] | None = None,
-                 ask_error: str | None = None, question: str = "") -> str:
+                 ask_error: str | None = None, question: str = "", bank_size: int = 0, mcq_error: str | None = None) -> str:
     sid = int(subject["id"])
     made = time.strftime("%Y-%m-%d", time.localtime(subject["created_at"]))
     return (
@@ -159,6 +238,7 @@ def subject_page(subject: dict, csrf: str, *, error: str | None = None, document
         f"<p class='sub'>{esc(subject['description']) or 'No description.'} &middot; created {made}</p>"
         + ask_section(sid, csrf, doubts or [], has_material=any(d["chunks"] for d in (documents or [])),
                       error=ask_error, question=question)
+        + mcq_section(sid, csrf, topics or [], bank_size, has_material=any(d["chunks"] for d in (documents or [])), error=mcq_error)
         + materials_section(sid, documents or [], topics or [], csrf, upload_error=upload_error)
         + "<div class='card'><b>Quizzes and progress</b><div class='note'>Arrive in the next phases.</div></div>"
         f"<h2>Rename or describe</h2>{error_box(error)}"

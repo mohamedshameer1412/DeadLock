@@ -61,3 +61,39 @@ def verification_rows(claims: list[dict], dropped: int, trace: list[dict]) -> li
     if exp and not exp["shown"] and exp["note"]:
         rows.append(f"The model's explanation was not shown: {exp['note']}.")
     return rows
+
+
+def mcq_step_text(step: dict) -> str:
+    """One recorded step of a question-generation job, in plain words."""
+    k, p = step["kind"], step["payload"]
+    if k == "request":
+        return (f"Asked for {p['count']} question{'s' if p['count'] != 1 else ''}"
+                + (" from one topic" if p.get("topic_id") else " across the subject") + f"; up to {p['revisions']} corrections per batch"
+                + ("; an independent reader checks each question" if p.get("solver") else "") + ".")
+    if k == "topic":
+        return f"Writing {p['ask']} question{'s' if p['ask'] != 1 else ''} from the topic \"{p['topic']}\" ({len(p['passages'])} passage(s))."
+    if k == "draft":
+        return f"Draft {p.get('attempt', 1)} by the {p['tier']} model: {len(p['questions'])} question(s) ({p.get('seconds', '?')} s)."
+    if k == "verification":
+        bad = "; ".join(f"question {f['question']}: {' '.join(f['problems'])}" for f in p["failed"])
+        return ("Checked by the app: " + (f"kept {', '.join(str(i) for i in p['ok'])}" if p["ok"] else "none kept") + (f". Rejected: {bad}" if bad else "."))
+    if k == "solver":
+        if not p.get("used"):
+            return "The independent reader could not run (" + p.get("error", "no reason") + "); these questions are marked as not independently checked."
+        bad = "; ".join(f"question {d['question']}: reader chose {d['chose']}, intended {d['intended']}" for d in p["disagreed"])
+        return "An independent reader answered each question from the passages without seeing the key. " + (f"Disagreed: {bad}." if bad else "It agreed on all.")
+    if k == "revision":
+        return f"Asked the model to replace the rejected questions (draft {p['attempt']})."
+    if k == "accepted":
+        return f"Kept: \"{p['question']}\"" + (" (independently checked)" if p.get("solver") == "agreed" else " (not independently checked)")
+    if k == "tier_skipped":
+        return "Skipped: " + p["note"] + "."
+    if k == "model_error":
+        return f"The {p['tier']} model failed: {p['error']}"
+    if k == "tier_failed":
+        return f"The {p['tier']} model gave no usable question ({p['why']}); trying the next option."
+    if k == "unexpected_error":
+        return f"Internal error: {p['type']}."
+    if k == "final":
+        return f"Result: {p['status']}, {p['produced']} question(s) kept, {p['rejected']} candidate(s) rejected."
+    return k

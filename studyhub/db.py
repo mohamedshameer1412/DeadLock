@@ -194,6 +194,58 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (4);
     COMMIT;
     """),
+    (5, """
+    BEGIN;
+
+    -- One request to generate multiple-choice questions, and how it ended.
+    CREATE TABLE mcq_jobs (
+        id           INTEGER PRIMARY KEY,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id   INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_id     INTEGER,                          -- NULL = the whole subject
+        scope        TEXT NOT NULL DEFAULT '',         -- plain-words label of what was asked for
+        requested    INTEGER NOT NULL,
+        produced     INTEGER NOT NULL DEFAULT 0,
+        rejected     INTEGER NOT NULL DEFAULT 0,       -- candidate questions that failed a check and were not kept
+        status       TEXT NOT NULL CHECK (status IN ('pending', 'done', 'failed')),
+        reason       TEXT NOT NULL DEFAULT '',
+        tier         TEXT,
+        model        TEXT,
+        run_id       TEXT,                             -- the spine run holding the append-only trace
+        created_at   REAL NOT NULL,
+        finished_at  REAL
+    );
+    CREATE INDEX mcq_jobs_by_subject ON mcq_jobs(user_id, subject_id, created_at);
+
+    -- The question bank. Only questions that passed every check are stored. Source details are snapshots, so a question
+    -- stays readable (and shows where it came from) after the document is deleted.
+    CREATE TABLE mcq_items (
+        id            INTEGER PRIMARY KEY,
+        subject_id    INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_id      INTEGER REFERENCES topics(id) ON DELETE SET NULL,
+        job_id        INTEGER REFERENCES mcq_jobs(id) ON DELETE SET NULL,
+        topic_path    TEXT NOT NULL DEFAULT '',
+        question      TEXT NOT NULL,
+        options       TEXT NOT NULL,                   -- JSON list of exactly 4, already shuffled by the app
+        answer_index  INTEGER NOT NULL CHECK (answer_index BETWEEN 0 AND 3),
+        explanation   TEXT NOT NULL DEFAULT '',
+        quote         TEXT NOT NULL,                   -- exact words from the material that support the answer
+        chunk_id      INTEGER,
+        doc_title     TEXT NOT NULL DEFAULT '',
+        page_start    INTEGER,
+        page_end      INTEGER,
+        heading_path  TEXT NOT NULL DEFAULT '',
+        solver        TEXT NOT NULL DEFAULT 'skipped' CHECK (solver IN ('agreed', 'skipped')),
+        model         TEXT,
+        key           TEXT NOT NULL,                   -- normalised question text, to refuse exact duplicates
+        created_at    REAL NOT NULL
+    );
+    CREATE UNIQUE INDEX mcq_items_unique ON mcq_items(subject_id, key);
+    CREATE INDEX mcq_items_by_topic ON mcq_items(subject_id, topic_id);
+
+    INSERT INTO schema_version(v) VALUES (5);
+    COMMIT;
+    """),
 ]
 
 

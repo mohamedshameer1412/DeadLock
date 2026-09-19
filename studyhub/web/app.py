@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from studyhub import auth, ingest, models, qa, retrieval, settings
+from studyhub import auth, ingest, mcq, models, qa, retrieval, settings
 from studyhub import db as studydb
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import ui
@@ -35,6 +35,7 @@ async def _lifespan(_app):
     store = studydb.open_db()
     try:
         Repo(store.db).expire_pending_doubts(0)
+        Repo(store.db).expire_pending_mcq_jobs(0)
     finally:
         store.close()
     yield
@@ -244,9 +245,10 @@ def subject(request: Request, subject_id: str):
 
 
 def _subject_html(db, user, session, row, *, status: int = 200, error: str | None = None, upload_error: str | None = None,
-                  ask_error: str | None = None, question: str = ""):
+                  ask_error: str | None = None, question: str = "", mcq_error: str | None = None):
     repo = Repo(db)
     body = ui.subject_page(row, session.csrf, error=error, upload_error=upload_error, ask_error=ask_error, question=question,
+                           mcq_error=mcq_error, bank_size=len(repo.list_mcq(user["id"], row["id"])),
                            documents=repo.list_documents(user["id"], row["id"]), topics=repo.list_topics(user["id"], row["id"]),
                            doubts=repo.list_doubts(user["id"], row["id"], 8))
     return _html(row["name"], body, status=status, user=user, csrf=session.csrf)
@@ -491,3 +493,101 @@ def account_cloud(request: Request, consent: str = Form(""), csrf: str = Form(""
             return _forbidden()
         Repo(db).set_cloud_consent(user["id"], consent == "yes")
     return RedirectResponse("/account", status_code=303)
+
+
+# ---------------------------------------------------------------------------- multiple-choice questions
+
+def _process_mcq(job_id: int, user_id: int) -> None:
+    """Write the questions of one pending job. Runs in the worker thread, with its own connection."""
+    with _open_store() as store:
+        repo = Repo(store.db)
+        try:
+            tiers, notes = tier_factory(store.db, repo.get_user(user_id))
+            mcq.run_job(store, user_id, job_id, tiers, notes)
+        except Exception as e:
+            store.db.execute("UPDATE mcq_jobs SET status='failed', reason=?, finished_at=strftime('%s','now') "
+                             "WHERE id=? AND user_id=? AND status='pending'",
+                             (f"Something went wrong while writing questions ({type(e).__name__}). Please try again.", job_id, user_id))
+
+
+def _submit_mcq(job_id: int, user_id: int) -> None:
+    global _worker
+    if settings.qa_inline():
+        _process_mcq(job_id, user_id)
+        return
+    with _worker_lock:
+        if _worker is None:
+            _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="qa")
+        _worker.submit(_process_mcq, job_id, user_id)
+
+
+@app.post("/subjects/{subject_id}/mcq/generate")
+def mcq_generate(request: Request, subject_id: str, topic: str = Form(""), count: str = Form("5"), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        repo.expire_pending_mcq_jobs(3600)
+        n = _int(count.strip())
+        topic_id = _int(topic.strip()) if topic.strip() else None
+        topics = {t["id"]: t for t in repo.list_topics(user["id"], row["id"]) if t["chunks"]}
+        error = None
+        if n is None or not 1 <= n <= mcq.MAX_COUNT:
+            error = f"Choose a number of questions from 1 to {mcq.MAX_COUNT}."
+        elif topic.strip() and (topic_id is None or topic_id not in topics):
+            error = "That topic is not part of this subject."
+        elif repo.pending_mcq_jobs(user["id"]) >= 1:
+            error = "Questions are already being written for you. Wait for that to finish, then generate again."
+        elif not topics:
+            error = "Upload some material first."
+        if error:
+            return _subject_html(db, user, session, row, status=400, mcq_error=error)
+        scope = f"{n} question{'s' if n != 1 else ''} from " + (f"the topic \"{topics[topic_id]['path']}\"" if topic_id else "the whole subject")
+        job_id = repo.create_mcq_job(user["id"], row["id"], topic_id, scope, n)
+    _submit_mcq(job_id, user["id"])
+    return RedirectResponse(f"/subjects/{row['id']}/mcq/jobs/{job_id}", status_code=303)
+
+
+@app.get("/subjects/{subject_id}/mcq/jobs/{job_id}")
+def mcq_job(request: Request, subject_id: str, job_id: str):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        repo.expire_pending_mcq_jobs(3600)
+        job = repo.get_mcq_job(user["id"], row["id"], _int(job_id) or -1)
+        if job is None:
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+        items = repo.list_mcq(user["id"], row["id"], job_id=job["id"]) if job["status"] != "pending" else []
+        trace = repo.mcq_trace(user["id"], row["id"], job["id"]) if job["status"] != "pending" else []
+        return _html("Writing questions", ui.mcq_job_page(row, job, items, trace, session.csrf), user=user, csrf=session.csrf)
+
+
+@app.get("/subjects/{subject_id}/mcq")
+def mcq_bank(request: Request, subject_id: str, topic: str = ""):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        topic_id = _int(topic) if topic else None
+        items = repo.list_mcq(user["id"], row["id"], topic_id)
+        return _html("Question bank", ui.mcq_bank_page(row, items, repo.list_topics(user["id"], row["id"]), topic_id, session.csrf),
+                     user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/mcq/{item_id}/delete")
+def mcq_delete(request: Request, subject_id: str, item_id: str, csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        if not Repo(db).delete_mcq(user["id"], row["id"], _int(item_id) or -1):
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+    return RedirectResponse(f"/subjects/{row['id']}/mcq", status_code=303)

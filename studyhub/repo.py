@@ -344,3 +344,105 @@ class Repo:
             (doubt_id, subject_id, user_id, user_id)).fetchall()
         return [{"seq": r["seq"], "kind": r["kind"], "by": r["produced_by"], "at": r["created_at"],
                  "payload": json.loads(r["payload_json"])} for r in rows]
+
+    # ------------------------------------------------------------------- multiple-choice questions
+    def topic_chunks(self, user_id: int, subject_id: int, topic_id: int, answers: bool = True) -> list[dict]:
+        """Passages of one topic of this user's subject, in reading order. With answers=True, quarantined ones are left out."""
+        rows = self.db.execute(
+            "SELECT c.id, c.ordinal, c.page_start, c.page_end, c.heading_path, c.text, d.title AS doc_title "
+            "FROM chunks c JOIN subjects s ON s.id=c.subject_id JOIN documents d ON d.id=c.document_id "
+            "WHERE c.topic_id=? AND c.subject_id=? AND s.user_id=? AND c.quarantined <= ? ORDER BY d.id, c.ordinal",
+            (topic_id, subject_id, user_id, 0 if answers else 1)).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_mcq_job(self, user_id: int, subject_id: int, topic_id: int | None, scope: str, requested: int) -> int | None:
+        if self.get_subject(user_id, subject_id) is None:
+            return None
+        return int(self.db.execute(
+            "INSERT INTO mcq_jobs(user_id, subject_id, topic_id, scope, requested, status, created_at) VALUES (?,?,?,?,?,'pending',?)",
+            (user_id, subject_id, topic_id, scope, requested, time.time())).lastrowid)
+
+    def pending_mcq_jobs(self, user_id: int) -> int:
+        return int(self.db.execute("SELECT COUNT(*) FROM mcq_jobs WHERE user_id=? AND status='pending'", (user_id,)).fetchone()[0])
+
+    def get_mcq_job(self, user_id: int, subject_id: int, job_id: int) -> dict | None:
+        row = self.db.execute(
+            "SELECT j.* FROM mcq_jobs j JOIN subjects s ON s.id=j.subject_id "
+            "WHERE j.id=? AND j.subject_id=? AND j.user_id=? AND s.user_id=?", (job_id, subject_id, user_id, user_id)).fetchone()
+        return dict(row) if row else None
+
+    def set_mcq_job_run(self, user_id: int, job_id: int, run_id: str) -> None:
+        self.db.execute("UPDATE mcq_jobs SET run_id=? WHERE id=? AND user_id=?", (run_id, job_id, user_id))
+
+    def finish_mcq_job(self, user_id: int, job_id: int, *, status: str, reason: str, rejected: int, tier: str | None,
+                       model: str | None, items: list[dict]) -> int:
+        """Store the approved questions and close the job, atomically. Returns how many were stored (exact duplicates are skipped)."""
+        job = self.db.execute("SELECT subject_id FROM mcq_jobs WHERE id=? AND user_id=? AND status='pending'", (job_id, user_id)).fetchone()
+        if job is None:
+            return 0
+        subject_id, stored = int(job["subject_id"]), 0
+        self.db.execute("BEGIN")
+        try:
+            for it in items:
+                try:
+                    self.db.execute(
+                        "INSERT INTO mcq_items(subject_id, topic_id, job_id, topic_path, question, options, answer_index, explanation, "
+                        "quote, chunk_id, doc_title, page_start, page_end, heading_path, solver, model, key, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (subject_id, it["topic_id"], job_id, it["topic_path"], it["question"], json.dumps(it["options"]),
+                         it["answer_index"], it["explanation"], it["quote"], it["chunk_id"], it["doc_title"], it["page_start"],
+                         it["page_end"], it["heading_path"], it["solver"], model, it["key"], time.time()))
+                    stored += 1
+                except sqlite3.IntegrityError:
+                    pass
+            self.db.execute(
+                "UPDATE mcq_jobs SET status=?, reason=?, produced=?, rejected=?, tier=?, model=?, finished_at=? WHERE id=?",
+                (status, reason, stored, rejected, tier, model, time.time(), job_id))
+            self.db.execute("COMMIT")
+        except BaseException:
+            self.db.execute("ROLLBACK")
+            raise
+        return stored
+
+    def list_mcq(self, user_id: int, subject_id: int, topic_id: int | None = None, job_id: int | None = None) -> list[dict]:
+        sql = ("SELECT m.* FROM mcq_items m JOIN subjects s ON s.id=m.subject_id WHERE m.subject_id=? AND s.user_id=?")
+        args: list = [subject_id, user_id]
+        if topic_id is not None:
+            sql += " AND m.topic_id=?"
+            args.append(topic_id)
+        if job_id is not None:
+            sql += " AND m.job_id=?"
+            args.append(job_id)
+        out = []
+        for r in self.db.execute(sql + " ORDER BY m.id", args):
+            d = dict(r)
+            d["options"] = json.loads(d["options"])
+            out.append(d)
+        return out
+
+    def mcq_questions(self, user_id: int, subject_id: int) -> list[str]:
+        """Question texts already in this user's bank for the subject (to avoid generating the same one again)."""
+        return [r[0] for r in self.db.execute(
+            "SELECT m.question FROM mcq_items m JOIN subjects s ON s.id=m.subject_id WHERE m.subject_id=? AND s.user_id=?",
+            (subject_id, user_id))]
+
+    def delete_mcq(self, user_id: int, subject_id: int, item_id: int) -> bool:
+        return self.db.execute(
+            "DELETE FROM mcq_items WHERE id=? AND subject_id=? AND subject_id IN (SELECT id FROM subjects WHERE id=? AND user_id=?)",
+            (item_id, subject_id, subject_id, user_id)).rowcount == 1
+
+    def expire_pending_mcq_jobs(self, older_than_seconds: float) -> int:
+        """Maintenance (not user-scoped): a job still pending long after it started was cut off by a restart."""
+        return self.db.execute(
+            "UPDATE mcq_jobs SET status='failed', reason='This job was interrupted (the app restarted). Generate again.', "
+            "finished_at=? WHERE status='pending' AND created_at < ?", (time.time(), time.time() - older_than_seconds)).rowcount
+
+    def mcq_trace(self, user_id: int, subject_id: int, job_id: int) -> list[dict]:
+        """The spine's append-only steps for one of this user's generation jobs, oldest first."""
+        rows = self.db.execute(
+            "SELECT v.seq, v.kind, v.produced_by, v.payload_json, v.created_at FROM versions v "
+            "JOIN mcq_jobs j ON j.run_id = v.run_id JOIN subjects s ON s.id = j.subject_id "
+            "WHERE j.id=? AND j.subject_id=? AND j.user_id=? AND s.user_id=? ORDER BY v.seq",
+            (job_id, subject_id, user_id, user_id)).fetchall()
+        return [{"seq": r["seq"], "kind": r["kind"], "by": r["produced_by"], "at": r["created_at"],
+                 "payload": json.loads(r["payload_json"])} for r in rows]
