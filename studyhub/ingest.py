@@ -8,9 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import settings
-from .chunker import chunk_blocks
+from .chunker import _SENTENCE, ChunkSpec, chunk_blocks
 from .extract import ExtractError, extract, sniff
 from .repo import Repo
+from . import screen
 
 
 class IngestError(ValueError):
@@ -30,6 +31,39 @@ class IngestResult:
 
 def _upload_path(user_id: int, sha256: str) -> Path:
     return Path(settings.upload_dir()) / str(int(user_id)) / sha256           # digits and hex only: no traversal
+
+
+def _piece(c: ChunkSpec, sentences: list[str], flagged: bool) -> ChunkSpec:
+    text = " ".join(sentences).strip()
+    return ChunkSpec(text, c.page_start, c.page_end, c.heading_path, c.topic_path, c.topic_origin,
+                     screen.find(text) if flagged else [])
+
+
+def quarantine(chunks: list[ChunkSpec]) -> list[ChunkSpec]:
+    """Mark passages that read as orders to an AI. When only some sentences do, the passage is split at sentence
+    boundaries so ONLY those sentences are quarantined and the legitimate text around them stays usable. Every piece is a
+    verbatim part of the original text. If the suspicious phrase cannot be pinned to sentences, the whole passage is marked."""
+    out: list[ChunkSpec] = []
+    for c in chunks:
+        if not screen.find(c.text):
+            out.append(c)
+            continue
+        sentences = _SENTENCE.split(c.text)
+        marks = [bool(screen.find(s)) for s in sentences]
+        if not any(marks):
+            c.flags = screen.find(c.text)
+            out.append(c)
+            continue
+        run: list[str] = []
+        run_flag = False
+        for s, m in zip(sentences, marks):
+            if run and m != run_flag:
+                out.append(_piece(c, run, run_flag))
+                run = []
+            run.append(s)
+            run_flag = m
+        out.append(_piece(c, run, run_flag))
+    return out
 
 
 def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str, data: bytes) -> IngestResult:
@@ -58,6 +92,11 @@ def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str,
     except ExtractError as e:                                # recognised type, unusable content: keep a visible record
         chunks, status, warnings, title, pages = [], "failed", [str(e)], (filename or "upload")[:200], None
 
+    chunks = quarantine(chunks)
+    flagged = sum(1 for c in chunks if c.flags)
+    if flagged:
+        warnings.append(f"{flagged} passage{'s' if flagged != 1 else ''} in this file read like instructions to an AI "
+                        "assistant. They stay readable and searchable, but are never used to write answers.")
     new_chars = sum(len(c.text) for c in chunks)
     if repo.subject_chars(user_id, subject_id) + new_chars > settings.max_subject_chars():
         raise IngestError("This subject has reached its material limit. Delete a document or start another subject.")

@@ -113,6 +113,87 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (2);
     COMMIT;
     """),
+    (3, """
+    BEGIN;
+
+    -- One question a student asked about a subject, and how it ended.
+    CREATE TABLE doubts (
+        id           INTEGER PRIMARY KEY,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id   INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        question     TEXT NOT NULL,
+        status       TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'abstained', 'extractive', 'failed')),
+        tier         TEXT,                             -- local | cloud | none
+        model        TEXT,
+        reason       TEXT NOT NULL DEFAULT '',         -- plain-words reason for an abstention or failure
+        run_id       TEXT,                             -- the spine run holding the append-only trace
+        dropped      INTEGER NOT NULL DEFAULT 0,       -- statements removed because a citation failed verification
+        feedback     TEXT CHECK (feedback IN ('helpful', 'wrong')),
+        created_at   REAL NOT NULL,
+        finished_at  REAL
+    );
+    CREATE INDEX doubts_by_subject ON doubts(user_id, subject_id, created_at);
+
+    -- Only statements whose citations all passed code verification are stored here.
+    CREATE TABLE doubt_claims (
+        doubt_id  INTEGER NOT NULL REFERENCES doubts(id) ON DELETE CASCADE,
+        ordinal   INTEGER NOT NULL,
+        text      TEXT NOT NULL,
+        PRIMARY KEY (doubt_id, ordinal)
+    );
+    -- Snapshots (no foreign key to chunks): the history stays readable after a document is deleted.
+    CREATE TABLE doubt_citations (
+        doubt_id       INTEGER NOT NULL,
+        claim          INTEGER NOT NULL,
+        n              INTEGER NOT NULL,
+        chunk_id       INTEGER,
+        quote          TEXT NOT NULL,
+        doc_title      TEXT NOT NULL,
+        page_start     INTEGER,
+        page_end       INTEGER,
+        heading_path   TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (doubt_id, claim, n),
+        FOREIGN KEY (doubt_id, claim) REFERENCES doubt_claims(doubt_id, ordinal) ON DELETE CASCADE
+    );
+    -- The passages retrieved for the question (what the model was allowed to see, or the closest ones on abstention).
+    CREATE TABLE doubt_sources (
+        doubt_id      INTEGER NOT NULL REFERENCES doubts(id) ON DELETE CASCADE,
+        rank          INTEGER NOT NULL,
+        chunk_id      INTEGER,
+        doc_title     TEXT NOT NULL,
+        page_start    INTEGER,
+        page_end      INTEGER,
+        heading_path  TEXT NOT NULL DEFAULT '',
+        text          TEXT NOT NULL,
+        matched       TEXT NOT NULL DEFAULT '[]',
+        PRIMARY KEY (doubt_id, rank)
+    );
+
+    -- Tokens sent to a cloud model, for the daily caps.
+    CREATE TABLE cloud_usage (
+        id       INTEGER PRIMARY KEY,
+        user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day      TEXT NOT NULL,
+        model    TEXT NOT NULL,
+        tokens   INTEGER NOT NULL,
+        at       REAL NOT NULL
+    );
+    CREATE INDEX cloud_usage_by_day ON cloud_usage(day, user_id);
+
+    INSERT INTO schema_version(v) VALUES (3);
+    COMMIT;
+    """),
+    (4, """
+    BEGIN;
+    -- Passages that read as orders to an AI: stored and searchable, never given to a model to write answers.
+    ALTER TABLE chunks ADD COLUMN quarantined INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE chunks ADD COLUMN flag_reason TEXT NOT NULL DEFAULT '';
+    -- The explainable answer: 'supported' or 'conflict' (the materials disagree), and the model's step-by-step reasoning.
+    ALTER TABLE doubts ADD COLUMN kind TEXT NOT NULL DEFAULT 'supported';
+    ALTER TABLE doubts ADD COLUMN explanation TEXT NOT NULL DEFAULT '';
+    INSERT INTO schema_version(v) VALUES (4);
+    COMMIT;
+    """),
 ]
 
 

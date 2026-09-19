@@ -29,6 +29,11 @@ def alice_with_subject():
     return c, sid
 
 
+def visible(html: str) -> str:
+    """The text a person sees: tags removed (search now wraps matched words in <mark>)."""
+    return __import__("html").unescape(re.sub(r"<[^>]+>", "", html))
+
+
 def doc_path(response) -> str:
     assert response.status_code == 303, response.text
     return response.headers["location"]
@@ -50,7 +55,7 @@ def test_upload_a_text_file_then_see_passages_topics_and_search_it(env):
     subject = c.get(f"/subjects/{sid}").text
     assert "ds" in subject and "Data Structures › Stacks" in subject and "Search your materials" in subject
 
-    found = c.get(f"/subjects/{sid}/search", params={"q": "how does inorder traversal work"}).text
+    found = visible(c.get(f"/subjects/{sid}/search", params={"q": "how does inorder traversal work"}).text)
     assert "Inorder traversal visits the left subtree" in found and "Data Structures › Trees" in found
 
 
@@ -60,7 +65,7 @@ def test_upload_pdf_and_docx_and_see_page_numbers(env):
                    outline=[("Chapter One", 0), ("Queues", 1)], title="Course notes")
     page = c.get(doc_path(upload(c, sid, "notes.pdf", pdf))).text
     assert "Course notes" in page and "2 pages" in page and "p. 1" in page and "p. 2" in page
-    hit = c.get(f"/subjects/{sid}/search", params={"q": "oldest element"}).text
+    hit = visible(c.get(f"/subjects/{sid}/search", params={"q": "oldest element"}).text)
     assert "p. 2" in hit and "Queues serve the oldest" in hit
 
     docx = make_docx([("Heading 1", "Networks"), ("Normal", "A router forwards packets between networks.")])

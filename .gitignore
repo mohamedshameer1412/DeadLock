@@ -13,3 +13,6 @@ bakeoff_raw.txt
 
 # StudyHub runtime data (user database, uploaded materials) - never commit
 data/
+
+# a downloaded copy of the project (contains a .env and a virtualenv): never commit
+DeadLock-main*.zip

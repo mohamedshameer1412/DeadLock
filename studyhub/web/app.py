@@ -14,18 +14,38 @@ Security notes
 from __future__ import annotations
 
 import secrets
-from contextlib import contextmanager
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager, contextmanager
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from studyhub import auth, ingest, retrieval, settings
+from studyhub import auth, ingest, models, qa, retrieval, settings
 from studyhub import db as studydb
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import ui
 
 SESSION_COOKIE, PRE_COOKIE = "sh_session", "sh_pre"
-app = FastAPI(title="StudyHub", docs_url=None, redoc_url=None, openapi_url=None)
+
+
+@asynccontextmanager
+async def _lifespan(_app):
+    """Questions still 'pending' when the process starts were cut off by the previous shutdown."""
+    store = studydb.open_db()
+    try:
+        Repo(store.db).expire_pending_doubts(0)
+    finally:
+        store.close()
+    yield
+
+
+app = FastAPI(title="StudyHub", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
+
+# Which models answer a question. A function so tests (and other deployments) can swap it: (db, user) -> (tiers, notes).
+tier_factory = models.build_tiers
+_worker: ThreadPoolExecutor | None = None
+_worker_lock = threading.Lock()
 
 
 @app.middleware("http")
@@ -223,10 +243,12 @@ def subject(request: Request, subject_id: str):
         return _subject_html(db, user, session, row)
 
 
-def _subject_html(db, user, session, row, *, status: int = 200, error: str | None = None, upload_error: str | None = None):
+def _subject_html(db, user, session, row, *, status: int = 200, error: str | None = None, upload_error: str | None = None,
+                  ask_error: str | None = None, question: str = ""):
     repo = Repo(db)
-    body = ui.subject_page(row, session.csrf, error=error, upload_error=upload_error,
-                           documents=repo.list_documents(user["id"], row["id"]), topics=repo.list_topics(user["id"], row["id"]))
+    body = ui.subject_page(row, session.csrf, error=error, upload_error=upload_error, ask_error=ask_error, question=question,
+                           documents=repo.list_documents(user["id"], row["id"]), topics=repo.list_topics(user["id"], row["id"]),
+                           doubts=repo.list_doubts(user["id"], row["id"], 8))
     return _html(row["name"], body, status=status, user=user, csrf=session.csrf)
 
 
@@ -342,3 +364,130 @@ def search_materials(request: Request, subject_id: str, q: str = ""):
         q = " ".join(q.split())[:200]
         results = retrieval.search(db, user["id"], row["id"], q, k=8) if q else []
         return _html("Search", ui.search_page(row, q, results), user=user, csrf=session.csrf)
+
+
+# ------------------------------------------------------------------------------------------------ questions
+
+@contextmanager
+def _open_store():
+    store = studydb.open_db()
+    try:
+        yield store
+    finally:
+        store.close()
+
+
+def _process(doubt_id: int, user_id: int) -> None:
+    """Answer one pending question. Runs in the worker thread, with its own connection."""
+    with _open_store() as store:
+        repo = Repo(store.db)
+        try:
+            tiers, notes = tier_factory(store.db, repo.get_user(user_id))
+            qa.run_doubt(store, user_id, doubt_id, tiers, notes)
+        except Exception as e:                                # the student must never be left on a spinner
+            repo.finish_doubt(user_id, doubt_id, status="failed", tier=None, model=None, dropped=0, claims=[], sources=[],
+                              reason=f"Something went wrong while answering ({type(e).__name__}). Please try again.")
+
+
+def _submit(doubt_id: int, user_id: int) -> None:
+    global _worker
+    if settings.qa_inline():
+        _process(doubt_id, user_id)
+        return
+    with _worker_lock:
+        if _worker is None:                                   # one at a time: a local model on a small GPU cannot do two
+            _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="qa")
+        _worker.submit(_process, doubt_id, user_id)
+
+
+@app.post("/subjects/{subject_id}/ask")
+def ask(request: Request, subject_id: str, question: str = Form(""), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        q = " ".join(question.split())
+        error = None
+        if len(q) < 3:
+            error = "Type your question first."
+        elif len(q) > qa.MAX_QUESTION_CHARS:
+            error = f"Please keep the question under {qa.MAX_QUESTION_CHARS} characters."
+        else:
+            repo.expire_pending_doubts(1800)
+            if repo.pending_doubts(user["id"]) >= settings.max_pending_questions():
+                error = "You already have questions being answered. Wait for one to finish, then ask again."
+        if error:
+            return _subject_html(db, user, session, row, status=400, ask_error=error, question=question[:600])
+        doubt_id = repo.create_doubt(user["id"], row["id"], q)
+    _submit(doubt_id, user["id"])
+    return RedirectResponse(f"/subjects/{row['id']}/questions/{doubt_id}", status_code=303)
+
+
+@app.get("/subjects/{subject_id}/questions/{doubt_id}")
+def question_page(request: Request, subject_id: str, doubt_id: str):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        repo.expire_pending_doubts(1800)
+        d = repo.get_doubt(user["id"], row["id"], _int(doubt_id) or -1)
+        if d is None:
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+        trace = repo.doubt_trace(user["id"], row["id"], d["id"]) if d["status"] != "pending" else []
+        return _html(d["question"][:60], ui.doubt_page(row, d, trace, session.csrf), user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/questions/{doubt_id}/feedback")
+def question_feedback(request: Request, subject_id: str, doubt_id: str, value: str = Form(""), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        if not Repo(db).set_doubt_feedback(user["id"], row["id"], _int(doubt_id) or -1, value):
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+    return RedirectResponse(f"/subjects/{row['id']}/questions/{int(doubt_id)}", status_code=303)
+
+
+@app.post("/subjects/{subject_id}/questions/{doubt_id}/delete")
+def question_delete(request: Request, subject_id: str, doubt_id: str, csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        if not Repo(db).delete_doubt(user["id"], row["id"], _int(doubt_id) or -1):
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+    return RedirectResponse(f"/subjects/{row['id']}", status_code=303)
+
+
+# ------------------------------------------------------------------------------------------------- account
+
+@app.get("/account")
+def account(request: Request):
+    with _open() as db:
+        ctx = _signed_in(request, db)
+        if ctx is None:
+            return RedirectResponse("/login", status_code=303)
+        user, session = ctx
+        s = models.slice_config.settings(reload=False)
+        return _html("Account", ui.account_page(user, session.csrf, key_configured=bool(s.api_key),
+                                                allowed=models.allowed_cloud_models() if s.api_key else []),
+                     user=user, csrf=session.csrf)
+
+
+@app.post("/account/cloud")
+def account_cloud(request: Request, consent: str = Form(""), csrf: str = Form("")):
+    with _open() as db:
+        ctx = _signed_in(request, db)
+        if ctx is None:
+            return RedirectResponse("/login", status_code=303)
+        user, session = ctx
+        if not auth.same_token(csrf, session.csrf):
+            return _forbidden()
+        Repo(db).set_cloud_consent(user["id"], consent == "yes")
+    return RedirectResponse("/account", status_code=303)

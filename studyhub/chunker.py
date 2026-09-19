@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .extract import Block
 
@@ -29,6 +29,7 @@ class ChunkSpec:
     heading_path: str
     topic_path: str
     topic_origin: str                                        # 'heading' | 'document'
+    flags: list[str] = field(default_factory=list)           # instruction-like snippets found by studyhub.screen
 
     @property
     def sha256(self) -> str:

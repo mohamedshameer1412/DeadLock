@@ -35,6 +35,15 @@ def max_subject_chars() -> int:
     return int(os.environ.get("STUDYHUB_MAX_SUBJECT_CHARS", str(2_000_000)))
 
 
+def qa_inline() -> bool:
+    """Answer questions inside the request instead of in the background worker. For tests and scripts."""
+    return os.environ.get("STUDYHUB_QA_INLINE", "0") == "1"
+
+
+def max_pending_questions() -> int:
+    return int(os.environ.get("STUDYHUB_MAX_PENDING_QUESTIONS", "2"))
+
+
 def scrypt_n() -> int:
     """scrypt cost. 2**15 (32 MB, ~100 ms) by default; tests lower it for speed. Each user's hash stores the
     parameters it was made with, so changing this never locks anyone out."""
