@@ -1,0 +1,29 @@
+server up: LLM_PROVIDER=ollama  db=frontend_live.db
+PASS  0  real browser  ::  Edg/153.0.0.0
+PASS  1  home page shows the LIVE mode (not fixture)  ::  Mode: ollama: llama3.1:latest (validator: same model, different prompt)
+PASS  2  generate click -> redirected to the run page immediately (no blocked request)  ::  after 0.5s at /run/run_1ee4ad8ef759
+PASS  3  LOADING state is visible while the local model works  ::  Working - currently generating. This page refreshes itself; a local model can take minutes per step.
+PASS  3b state strip shows an in-progress state  ::  WORKFLOW STATE GENERATING
+PASS  4  run finished by itself (page polled; no manual refresh)  ::  finished after 132s
+PASS  5  generated NOTES are shown  ::  3 notes, all present on the page
+PASS  6  QUIZ shown (options, marked answer, explanation, source proof)  ::  3 questions
+PASS  7  VALIDATOR result shown  ::  VALIDATOR APPROVED (0 issue(s))
+PASS  8  REVISION info shown  ::  REVISION 0 of 3
+PASS  9  FINAL state shown  ::  complete; OUTCOME approved by validator
+PASS  9b pipeline was the real one: generator + validator produced the records  ::  path=drafting -> gating -> complete; mode=ollama: llama3.1:latest (validator: same model, different prompt); tokens=2905
+PASS  10 TRACE shows real per-step timings and tokens  ::  drafting -> gating 1,533 tok 94.36s
+PASS  11 real tester feedback on the REAL model output is saved and displayed  ::  Feedback so far (1) ... live-browser-qa
+PASS  11b feedback row is attached to this run and to the draft the tester saw  ::  {"run_id":"run_1ee4ad8ef759","seq":7,"submitted_at":1789820139.3355088,"useful":true,"rating":4,"comment":"Q2 says byproducts but glucose is a product","confusing":"wordi
+PASS  12 no JavaScript errors in the whole live session  ::  0 errors
+
+LIVE BROWSER RESULT: 16/16 passed
+RUN_ID=run_1ee4ad8ef759
+
+SQLITE (read directly), records of the live run:
+   #1   input     user
+   #2   draft     agent:generator
+   #3   step      orchestrator
+   #4   verdict   agent:validator
+   #5   result    orchestrator
+   #6   step      orchestrator
+   #7   feedback  tester:live-browser-qa

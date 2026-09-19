@@ -1,0 +1,36 @@
+
+====================================================================================================
+LIVE OLLAMA TEST - REVISION LOOP  (v1 = hand-authored flawed INPUT; validator + revision are REAL)
+====================================================================================================
+finished in 184s   FINAL STATE: complete
+
+VERSION 1 (test input) flaws planted: note[3] unsupported claim; Q2 quote not verbatim; Q3 duplicate options
+
+VALIDATOR VERDICT on draft 1: REJECTED
+    [code] questions[1] quote_not_in_source: The cited passage 'Carbon dioxide and water are converted into glucose using sunlight.' does not appear in the source. Copy a supporting pas
+    [code] questions[2] duplicate_options: Two options are the same, so the question cannot have exactly one correct answer. Make all four options distinct.
+  -> REVISION 1: draft 2 changed: ['notes', 'questions[1]', 'questions[2]']
+VALIDATOR VERDICT on draft 2: APPROVED
+
+FEEDBACK ACTUALLY SENT TO THE REVISION (from the recorded generator prompt):
+   The validator rejected it. Fix each issue in the place it names, and leave everything nobody objected to exactly as it was:
+   
+   - [quote_not_in_source] questions[1]: The cited passage 'Carbon dioxide and water are converted into glucose using sunlight.' does not appear in the source. Copy a supporting passage exactly as it is written there.
+   - [duplicate_options] questions[2]: Two options are the same, so the question cannot have exactly one correct answer. Make all four options distinct.
+   
+   ---
+   
+   Reply with one JSON object matching this JSON Schema, and nothing else:
+   {"$defs": {"MCQ": {"description": "One multiple-choice question, and the evidence for its answer key.", "properties": {"question": {"maxLength": 300, "minLength": 10, "title": "Question", "type": "string"}, "options": {"description": "Exactly four options, in the order A, B, C, D", "items": {"maxLength": 200, "minLength": 1, "type
+
+ISSUE-BY-ISSUE: was each first-round issue addressed in draft 2?
+   Q2 quote now verbatim in source: True
+   Q3 options now distinct: True
+   unsupported bacteria note still present: False
+   draft-2 notes: ['Green plants convert light energy into chemical energy through photosynthesis.', 'Chlorophyll absorbs the light energy that drives the process.', 'Carbon dioxide and water are used to produce glucose and oxygen.']
+   draft-2 Q2 quote: 'Carbon dioxide and water are used to produce glucose and oxygen.'
+   draft-2 Q3 options: ['Chemical energy', 'Sound energy', 'Nuclear energy', 'Thermal energy']
+
+REVISION COUNT: 1   drafts: 2   tokens: 4773
+STATE SEQUENCE: gating -> drafting -> gating -> complete
+LLM calls made: [('audit', 39.0), ('generate', 105.0), ('audit', 39.6)]

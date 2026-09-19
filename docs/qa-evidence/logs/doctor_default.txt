@@ -1,0 +1,22 @@
+
+agentic-slice-kit doctor
+------------------------------------------------------------
+[ FAIL ] .env not found
+         Run:  cp .env.example .env   then paste your key.
+         No key? LLM_PROVIDER=ollama runs a local model; LLM_PROVIDER=fixture needs nothing.
+[ skip ] credit check - needs a key
+[ warn ] SLICE_MODEL not set
+[ warn ] SLICE_FALLBACK_MODEL not set
+[ warn ] SLICE_ESCALATION_MODEL not set
+[  ok  ] LLM_PROVIDER=openrouter
+[  ok  ] Ollama is running; pulled: llama3.1:latest  (use it with LLM_PROVIDER=ollama)
+[  ok  ] sqlite-vec v0.1.9 loads
+[ warn ] cloudflared not installed
+         You will not be able to share a public demo URL from this codespace.
+[ warn ] embedding model not baked in
+         First ingest will download ~80MB. Fine on good wifi, painful otherwise.
+------------------------------------------------------------
+1 problem(s) above, 1 check(s) skipped
+Fix these BEFORE you start debugging your agent - most of what looks
+like a broken agent is often a broken environment.
+

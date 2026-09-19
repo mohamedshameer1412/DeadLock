@@ -1,0 +1,56 @@
+
+====================================================================================================
+PROVIDER FAILURE MODES - real HTTP against a controlled fake server (no model, no mocks of httpx)
+====================================================================================================
+
+OLLAMA PROVIDER  (OllamaProvider -> POST /api/chat)
+  mode              result          detail
+  good              OK              StudyPack   (1.0s)
+  invalid_json_body ModelError      Ollama returned a body that is not JSON: '<html>502 bad gateway</html>'   (0.8s)
+  empty             SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: ''   (1.6s)
+  malformed         SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: 'Sure! Here    (1.8s)
+  wrong_shape       SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: '{"foo": 1}'   (1.6s)
+  truncated         Truncated       Ollama model qa-model was cut off at 1200 tokens before finishing. Raise SLICE_MAX_TOKENS, or ask for a s   (0.8s)
+  http500           ModelError      Ollama returned HTTP 500: {"error": "model requires more system memory (9.1 GiB) than is available"}   (0.8s)
+  http404           ModelNotFound   Model 'qa-model' not found in Ollama. Pull it first (outside this app): ollama pull qa-model This app doe   (0.8s)
+  slow              ProviderTimeout Ollama request timed out after 1s. The model may still be loading, or too big for this machine - raise OL   (1.9s)
+  DEAD PORT         ModelError      Cannot connect to Ollama at http://127.0.0.1:59999. Is Ollama running? Start it with: ollama serve   (ori   (2.8s)
+  404 + fallback    ModelNotFound   Every configured Ollama model failed - big: Model 'big' not found in Ollama. Pull it first (outside 
+
+OPENROUTER PROVIDER  (OpenRouterProvider -> llm.complete; endpoint redirected to the fake server)
+  mode              result          detail
+  good              OK              StudyPack   (0.8s)
+  invalid_json_body JSONDecodeError Expecting value: line 1 column 1 (char 0)   (0.8s)
+  empty             SchemaFailure   No model produced valid StudyPack after a repair pass. Last reply began: ''   (3.3s)
+  malformed         SchemaFailure   No model produced valid StudyPack after a repair pass. Last reply began: 'Sure! Here is the study pack: {   (3.6s)
+  wrong_shape       SchemaFailure   No model produced valid StudyPack after a repair pass. Last reply began: '{"foo": 1}'   (1.2s)
+  truncated         Truncated       qa/fallback was cut off at max_tokens (1200) before finishing. This is not a prompt problem.   -> Raise S   (0.5s)
+  http500           ModelError      qa/fallback returned HTTP 500: {"error": "model requires more system memory (9.1 GiB) than is available"}   (0.5s)
+  http429           ModelError      qa/fallback returned HTTP 429: {"error": {"message": "rate limited"}}   (0.4s)
+  http402_key       CapExhausted    Your team's API key has reached its spending cap.   -> Reduce SLICE_MAX_TOKENS, or ask the key desk for a   (0.2s)
+  slow              ModelError      Both models unreachable (timed out). Run `python scripts/doctor.py` - this is usually the network or a pr   (2.5s)
+  DEAD PORT         ModelError      Both models unreachable ([WinError 10061] No connection could be made because the target machine actively   (5.5s)
+
+====================================================================================================
+PROVIDER FAILURE -> WHOLE RUN (real providers, real HTTP failures, full orchestrator)
+====================================================================================================
+
+  situation                             final    failure.kind        detail
+  Ollama unavailable (dead port)        failed   model               Cannot connect to Ollama at http://127.0.0.1:59999. Is Ollama running?
+  Ollama: invalid_json_body             failed   model               Ollama returned a body that is not JSON: '<html>502 bad gateway</html>
+  Ollama: empty                         failed   model               Ollama model qa did not produce valid StudyPack after a repair pass. L
+  Ollama: malformed                     failed   model               Ollama model qa did not produce valid StudyPack after a repair pass. L
+  Ollama: wrong_shape                   failed   model               Ollama model qa did not produce valid StudyPack after a repair pass. L
+  Ollama: truncated                     failed   model               Ollama model qa was cut off at 2400 tokens before finishing. Raise SLI
+  Ollama: http500                       failed   model               Ollama returned HTTP 500: {"error": "model requires more system memory
+  Ollama: slow                          failed   model               Ollama request timed out after 1s. The model may still be loading, or 
+  OpenRouter unavailable (dead port)    failed   model               Both models unreachable ([WinError 10061] No connection could be made 
+  OpenRouter: invalid_json_body         failed   unexpected_error    JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+  OpenRouter: empty                     failed   model               No model produced valid StudyPack after a repair pass. Last reply bega
+  OpenRouter: malformed                 failed   model               No model produced valid StudyPack after a repair pass. Last reply bega
+  OpenRouter: http500                   failed   model               qa/f returned HTTP 500: {"error": "model requires more system memory (
+  OpenRouter: http429                   failed   model               qa/f returned HTTP 429: {"error": {"message": "rate limited"}}
+  OpenRouter: http402_key               failed   cap_exhausted       Your team's API key has reached its spending cap.
+  -> Reduce SLICE_MA
+
+  every state path ended: {'failed'}

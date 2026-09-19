@@ -1,0 +1,39 @@
+server up (production scrypt, local Ollama model, no cloud key)
+PASS  0  before any upload there is no generate form, only a hint  ::  hint shown
+PASS  1  after uploading, the form offers "Whole subject" and each topic found  ::  Whole subject | Data Structures › Stacks (1 passages) | Data Structures › Queues (1 passages) | Data Structures › Trees (1 passages)
+PASS  2  the job page showed "writing" and then finished by itself  ::  78s; Finished: 3 of 3 questions kept
+PASS  3  at least one question was kept (real model, every check passed)  ::  3 kept
+PASS  4  every question has exactly 4 different options  ::  4,4,4
+PASS  5  the answer is hidden until the "Show answer" section is opened  ::  closed by default; not in visible text
+PASS  6  opening it shows the correct answer, the exact source words and the checks  ::  Show answer and source Correct answer: B) last-in first-out A stack is a last-in first-out collection because it follows the LIFO principle. Source: data-struct
+PASS  7  every quote shown is found word for word in the uploaded file (checked here, independently of the app)  ::  3 quote(s)
+PASS  8  the revealed letter really is the option that holds the answer text  ::  letters match options
+PASS  9  the answer letters are not all the same (the app shuffles, not the model)  ::  BCD
+PASS  10 "How these were produced" lists the steps, including the independent reader  ::  steps present
+PASS  11 the question bank lists them  ::  3 in bank
+PASS  12 the topic filter narrows the bank to that topic  ::  1 of 3 for /subjects/1/mcq?topic=1
+PASS  13 deleting a question removes it  ::  3 -> 2
+PASS  14 a count outside 1 to 10 is refused with a message (HTTP 400) and starts nothing  ::  HTTP 400
+PASS  15 another account gets 404 for the first account's job and question bank, and no question text leaks  ::  job 404, bank 404
+PASS  16 no JavaScript errors in the session  ::  0 errors
+
+BROWSER RESULT: 17/17 passed
+
+QUESTIONS AS SHOWN:
+1. 1. What type of collection is a stack?
+   A) first-in first-out  |  B) last-in first-out  |  C) random access  |  D) first-in last-out
+   answer: B
+2. 2. What type of collection is a queue?
+   A) last-in first-out  |  B) random access  |  C) first-in first-out  |  D) depth-first search
+   answer: C
+3. 3. What is a characteristic of every node in a binary tree?
+   A) only one child  |  B) at least three children  |  C) no children  |  D) at most two children
+   answer: D
+
+SQLITE (read directly):
+   job: (1, 'done', 3, 3, 0, 'local', 'llama3.1:latest')
+   questions stored: 2  solver-checked: 2
+   answer positions: [2, 3]
+   options per question (must all be 4): {4}
+   spine runs (mcq): 1
+server stopped: no LISTENING socket

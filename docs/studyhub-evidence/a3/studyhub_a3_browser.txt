@@ -1,0 +1,62 @@
+server up (production scrypt, local Ollama model, no cloud key)
+PASS  0a the Ask form is not offered before any material is uploaded  ::  no question box
+PASS  1  a question runs in the background: the page showed "Working" and then finished by itself  ::  waited 21s, final badge: Answered from your materials
+PASS  2  every quote shown is found word for word in the uploaded file (checked here, independently of the app)  ::  1 quote(s); status "Answered from your materials"; the pop operation removes the element from the top.
+PASS  3  the answer names where it comes from (heading) and says the quotes were checked by the app  ::  source + check label present
+PASS  4  "How this was produced" is on the page and lists the steps  ::  details present
+PASS  5  an out-of-scope question is answered at once with "nothing was guessed" (no model, no answer)  ::  took 0s
+PASS  6  a weakly related question does not reach the model and shows the closest passages verbatim  ::  took 0s
+PASS  7  "This looks wrong" is recorded and shown  ::  marked
+PASS  8  the three questions are listed in the history  ::  history shown
+PASS  9  the Account page explains cloud use and starts with it switched OFF  ::  checkbox off
+PASS  10 ticking the box and saving is remembered  ::  checkbox on after reload
+PASS  11 another account gets 404 for the first account's question and subject  ::  question 404: true
+PASS  12 no JavaScript errors in the session  ::  0 errors
+
+BROWSER RESULT: 13/13 passed
+
+FIRST ANSWER PAGE TEXT:
+StudyHub
+Account
+Signed in as alice
+Log out
+
+← Data Structures
+
+What does the pop operation do on a stack?
+
+Answered from your materials
+
+Answer
+The pop operation removes an element from the top of the stack.[1]
+Sources and evidence
+
+Each source shows the file, the section and the PDF page, and the exact words the answer rests on. The app checks that the words exist in your material; it cannot check that a statement reads them correctly, so read the quote.
+
+[1] data-structures · section: Data Structures › Stacks
+the pop operation removes the element from the top.
+✓ These exact words were found in your material (checked by the app).
+Explanation, step by step
+The quote from the "Stacks" passage says what the pop operation does. This is the definition of the pop operation on a stack.
+The model's own reasoning. It passed simple checks (no invented numbers, follows the quotes) but is not verified word for word.
+Verification
+✓ Every quote (1) was found word for word in your material.
+✓ Every number in a statement also appears in its quote.
+✓ Only your own subject's passages were searched, and passages that read like instructions to an AI were not shown to the model.
+✓ Each statement mentions "pop", the key word of your question.
+
+Written by llama3.1:latest (local).
+
+This helped
+This looks wrong
+How this was produced
+Delete this question
+
+SQLITE (read directly):
+   doubt: (1, 'answered', 'local', 'llama3.1:latest', 0, 'What does the pop operation do on a stack?')
+   doubt: (2, 'abstained', 'none', None, 0, 'What is photosynthesis in plants?')
+   doubt: (3, 'abstained', 'none', None, 0, 'What is the enqueue speed of hash tables in databa')
+   claims stored: 1  citations stored: 1
+   spine runs (qa): 3  trace rows: 15
+   consent flags: [('alice', 0), ('bobby', 0)]
+server stopped: no LISTENING socket

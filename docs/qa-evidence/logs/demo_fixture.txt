@@ -1,0 +1,477 @@
+
+Study Pack Generator — Fixture Demo
+Runs all four scenarios with no API key, no Ollama, no network.
+
+--------------------------------------------------------------------------------
+  SCENARIO: 'revise'
+  rejected once, revised, approved
+--------------------------------------------------------------------------------
+run run_a27132df7bf4   mode: stub:revise (scripted replies - no model is called)
+
+--  1  SOURCE  (152 words) ---------------------------------------------------
+   Photosynthesis is the process by which plants, algae and some bacteria convert light energy into
+       chemical energy stored in glucose. In plants it takes place mainly in the leaves, inside
+       organelles called chloroplasts, which contain the green pigment chlorophyll. Chlorophyll
+       absorbs light most strongly in the blue and r ...
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant."   [NOT FOUND IN SOURCE]
+     Q3. Which of these does the Calvin cycle use?
+         A. ATP and NADPH   <-- answer
+         B. Carbon dioxide
+         C. Direct sunlight
+         D. Chlorophyll
+         why: The Calvin cycle uses ATP and NADPH made in the light-dependent reactions.
+         source: "the plant uses ATP and NADPH to turn carbon dioxide from the air into glucose"
+             [verified in source, paragraph 2]
+
+   . drafting -> gating   362 tok   0.0s
+--  4  VALIDATOR  REJECTED  (draft 1, 2 issues) ------------------------------
+     x [code] questions[1]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant.' does not appear in the source. Copy a supporting passage exactly as it
+         is written there.
+     x [model] questions[2]: not_exactly_one_correct - The marked answer is A, but the source
+         supports: A, B. The source says the Calvin cycle uses ATP and NADPH and also carbon
+         dioxide, so options A and B are both correct.
+
+   . gating -> drafting   120 tok   0.0s
+--  6  DRAFT 2  (revision 1)   by agent:generator ----------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "releasing oxygen as a by-product"   [verified in source, paragraph 2]
+     Q3. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+
+   . drafting -> gating   356 tok   0.0s
+--  8  VALIDATOR  APPROVED  (draft 2) ----------------------------------------
+
+--  9  RESULT  APPROVED ------------------------------------------------------
+   approved by validator, draft 2, after 1 revision
+
+   . gating -> complete   91 tok   0.0s
+path    drafting -> gating -> drafting -> gating -> complete
+state   COMPLETE   2 draft(s), 1 revision(s), 929 tok, 0.0s in steps
+
+  => COMPLETE
+
+--------------------------------------------------------------------------------
+  SCENARIO: 'clean'
+  approved on the first draft
+--------------------------------------------------------------------------------
+run run_781fd00d01bd   mode: stub:clean (scripted replies - no model is called)
+
+--  1  SOURCE  (152 words) ---------------------------------------------------
+   Photosynthesis is the process by which plants, algae and some bacteria convert light energy into
+       chemical energy stored in glucose. In plants it takes place mainly in the leaves, inside
+       organelles called chloroplasts, which contain the green pigment chlorophyll. Chlorophyll
+       absorbs light most strongly in the blue and r ...
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "releasing oxygen as a by-product"   [verified in source, paragraph 2]
+     Q3. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+
+   . drafting -> gating   356 tok   0.0s
+--  4  VALIDATOR  APPROVED  (draft 1) ----------------------------------------
+
+--  5  RESULT  APPROVED ------------------------------------------------------
+   approved by validator, draft 1, after 0 revisions
+
+   . gating -> complete   91 tok   0.0s
+path    drafting -> gating -> complete
+state   COMPLETE   1 draft(s), 0 revision(s), 447 tok, 0.0s in steps
+
+  => COMPLETE
+
+--------------------------------------------------------------------------------
+  SCENARIO: 'stuck'
+  never converges: three revisions, then a human decides
+--------------------------------------------------------------------------------
+run run_a847730d6aec   mode: stub:stuck (scripted replies - no model is called)
+
+--  1  SOURCE  (152 words) ---------------------------------------------------
+   Photosynthesis is the process by which plants, algae and some bacteria convert light energy into
+       chemical energy stored in glucose. In plants it takes place mainly in the leaves, inside
+       organelles called chloroplasts, which contain the green pigment chlorophyll. Chlorophyll
+       absorbs light most strongly in the blue and r ...
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+     Q3. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant (claim 1)."   [NOT FOUND IN
+             SOURCE]
+
+   . drafting -> gating   363 tok   0.0s
+--  4  VALIDATOR  REJECTED  (draft 1, 1 issue) -------------------------------
+     x [code] questions[2]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant (claim 1).' does not appear in the source. Copy a supporting passage
+         exactly as it is written there.
+
+   . gating -> drafting   91 tok   0.0s
+--  6  DRAFT 2  (revision 1)   by agent:generator ----------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+     Q3. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant (claim 2)."   [NOT FOUND IN
+             SOURCE]
+
+   . drafting -> gating   363 tok   0.0s
+--  8  VALIDATOR  REJECTED  (draft 2, 1 issue) -------------------------------
+     x [code] questions[2]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant (claim 2).' does not appear in the source. Copy a supporting passage
+         exactly as it is written there.
+
+   . gating -> drafting   91 tok   0.0s
+-- 10  DRAFT 3  (revision 2)   by agent:generator ----------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+     Q3. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant (claim 3)."   [NOT FOUND IN
+             SOURCE]
+
+   . drafting -> gating   363 tok   0.0s
+-- 12  VALIDATOR  REJECTED  (draft 3, 1 issue) -------------------------------
+     x [code] questions[2]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant (claim 3).' does not appear in the source. Copy a supporting passage
+         exactly as it is written there.
+
+   . gating -> drafting   91 tok   0.0s
+-- 14  DRAFT 4  (revision 3)   by agent:generator ----------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Through which structures does carbon dioxide enter the leaf?
+         A. Stomata   <-- answer
+         B. Chloroplasts
+         C. Roots
+         D. Thylakoids
+         why: The source says carbon dioxide enters the leaf through tiny pores called stomata.
+         source: "Carbon dioxide enters the leaf through tiny pores called stomata"   [verified in
+             source, paragraph 2]
+     Q3. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant (claim 4)."   [NOT FOUND IN
+             SOURCE]
+
+   . drafting -> gating   363 tok   0.0s
+-- 16  VALIDATOR  REJECTED  (draft 4, 1 issue) -------------------------------
+     x [code] questions[2]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant (claim 4).' does not appear in the source. Copy a supporting passage
+         exactly as it is written there.
+
+-- 17  HUMAN REVIEW REQUIRED  (max_revisions) --------------------------------
+   The validator still rejected the draft after 3 revisions, which is the limit.
+
+-- 18  REVIEW REQUESTED ------------------------------------------------------
+   Approve or reject this study pack? Reply APPROVE to accept the latest draft as it stands, or
+       REJECT to discard it. Add any notes after the word.
+
+   . gating -> awaiting_expert   91 tok   0.0s
+-- 20  REVIEWER ANSWER  (scripted-reviewer) ----------------------------------
+   APPROVE the quotes were checked by hand
+
+-- 21  HUMAN DECISION  APPROVED ----------------------------------------------
+   the quotes were checked by hand
+
+-- 22  RESULT  APPROVED ------------------------------------------------------
+   approved by human:scripted-reviewer, draft 4, after 3 revisions
+   over validator issues: quote_not_in_source
+
+   . probing -> complete   0 tok   0.0s
+path    drafting -> gating -> drafting -> gating -> drafting -> gating -> drafting -> gating -> awaiting_expert -> probing -> complete
+state   COMPLETE   4 draft(s), 3 revision(s), 1,816 tok, 0.0s in steps
+  (the reviewer above is scripted: 'scripted-reviewer' - no person was involved)
+
+  => COMPLETE
+
+--------------------------------------------------------------------------------
+  SCENARIO: 'repeat'
+  the generator repeats itself, so a human decides
+--------------------------------------------------------------------------------
+run run_8d6a1e0d09b1   mode: stub:repeat (scripted replies - no model is called)
+
+--  1  SOURCE  (152 words) ---------------------------------------------------
+   Photosynthesis is the process by which plants, algae and some bacteria convert light energy into
+       chemical energy stored in glucose. In plants it takes place mainly in the leaves, inside
+       organelles called chloroplasts, which contain the green pigment chlorophyll. Chlorophyll
+       absorbs light most strongly in the blue and r ...
+
+--  2  DRAFT 1   by agent:generator ------------------------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant."   [NOT FOUND IN SOURCE]
+     Q3. Which of these does the Calvin cycle use?
+         A. ATP and NADPH   <-- answer
+         B. Carbon dioxide
+         C. Direct sunlight
+         D. Chlorophyll
+         why: The Calvin cycle uses ATP and NADPH made in the light-dependent reactions.
+         source: "the plant uses ATP and NADPH to turn carbon dioxide from the air into glucose"
+             [verified in source, paragraph 2]
+
+   . drafting -> gating   362 tok   0.0s
+--  4  VALIDATOR  REJECTED  (draft 1, 2 issues) ------------------------------
+     x [code] questions[1]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant.' does not appear in the source. Copy a supporting passage exactly as it
+         is written there.
+     x [model] questions[2]: not_exactly_one_correct - The marked answer is A, but the source
+         supports: A, B. The source says the Calvin cycle uses ATP and NADPH and also carbon
+         dioxide, so options A and B are both correct.
+
+   . gating -> drafting   120 tok   0.0s
+--  6  DRAFT 2  (revision 1)   by agent:generator ----------------------------
+   Title: Photosynthesis
+   Notes:
+     - Photosynthesis converts light energy into chemical energy stored in glucose.
+     - In plants it happens mainly in the leaves, inside chloroplasts that contain chlorophyll.
+     - Light-dependent reactions split water, release oxygen and make ATP and NADPH.
+     - The Calvin cycle uses ATP and NADPH to turn carbon dioxide into glucose.
+     - Carbon dioxide enters the leaf through tiny pores called stomata.
+   Questions:
+     Q1. Where in a plant cell does photosynthesis mainly take place?
+         A. Mitochondria
+         B. Chloroplasts   <-- answer
+         C. Nucleus
+         D. Ribosomes
+         why: Photosynthesis happens in chloroplasts, which hold the green pigment chlorophyll.
+         source: "inside organelles called chloroplasts"   [verified in source, paragraph 1]
+     Q2. Which substance is released as a by-product of the light-dependent reactions?
+         A. Carbon dioxide
+         B. Oxygen   <-- answer
+         C. Nitrogen
+         D. Glucose
+         why: Splitting water in the light-dependent reactions releases oxygen.
+         source: "Oxygen is released through the roots of the plant."   [NOT FOUND IN SOURCE]
+     Q3. Which of these does the Calvin cycle use?
+         A. ATP and NADPH   <-- answer
+         B. Carbon dioxide
+         C. Direct sunlight
+         D. Chlorophyll
+         why: The Calvin cycle uses ATP and NADPH made in the light-dependent reactions.
+         source: "the plant uses ATP and NADPH to turn carbon dioxide from the air into glucose"
+             [verified in source, paragraph 2]
+
+   . drafting -> gating   362 tok   0.0s
+--  8  VALIDATOR  REJECTED  (draft 2, 2 issues) ------------------------------
+     x [code] questions[1]: quote_not_in_source - The cited passage 'Oxygen is released through the
+         roots of the plant.' does not appear in the source. Copy a supporting passage exactly as it
+         is written there.
+     x [model] questions[2]: not_exactly_one_correct - The marked answer is A, but the source
+         supports: A, B. The source says the Calvin cycle uses ATP and NADPH and also carbon
+         dioxide, so options A and B are both correct.
+
+--  9  HUMAN REVIEW REQUIRED  (repeated_output) ------------------------------
+   The generator produced the same draft twice, so another revision would change nothing.
+
+-- 10  REVIEW REQUESTED ------------------------------------------------------
+   Approve or reject this study pack? Reply APPROVE to accept the latest draft as it stands, or
+       REJECT to discard it. Add any notes after the word.
+
+   . gating -> awaiting_expert   120 tok   0.0s
+-- 12  REVIEWER ANSWER  (scripted-reviewer) ----------------------------------
+   REJECT the generator is repeating itself
+
+-- 13  HUMAN DECISION  REJECTED ----------------------------------------------
+   the generator is repeating itself
+
+-- 14  STOPPED  human_rejected -----------------------------------------------
+   The reviewer rejected the study pack. Reviewer's note: the generator is repeating itself
+
+   . probing -> failed   0 tok   0.0s
+path    drafting -> gating -> drafting -> gating -> awaiting_expert -> probing -> failed
+state   FAILED   2 draft(s), 1 revision(s), 964 tok, 0.0s in steps
+  (the reviewer above is scripted: 'scripted-reviewer' - no person was involved)
+
+  => FAILED
+
+--------------------------------------------------------------------------------
+  All four scenarios complete.
+--------------------------------------------------------------------------------
+

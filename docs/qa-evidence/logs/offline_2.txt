@@ -1,0 +1,52 @@
+
+====================================================================================================
+FIXTURE PROVIDER - must work with no internet, no Ollama, no OpenRouter, no key
+====================================================================================================
+  FixtureProvider through the orchestrator: complete; httpx.post/get patched to FAIL if touched -> not touched
+  calls made: [{'step': 'generate', 'i': 0}, {'step': 'audit', 'i': 0}]
+  OPENROUTER_API_KEY in environment: NOT SET
+
+====================================================================================================
+PROVIDER FAILURE MODES - real HTTP against a controlled fake server (no model, no mocks of httpx)
+====================================================================================================
+
+OLLAMA PROVIDER  (OllamaProvider -> POST /api/chat)
+  mode              result          detail
+  good              OK              StudyPack   (1.2s)
+  invalid_json_body ModelError      Ollama returned a body that is not JSON: '<html>502 bad gateway</html>'   (0.9s)
+  empty             SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: ''   (1.7s)
+  malformed         SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: 'Sure! Here    (1.8s)
+  wrong_shape       SchemaFailure   Ollama model qa-model did not produce valid StudyPack after a repair pass. Last reply began: '{"foo": 1}'   (1.8s)
+  truncated         Truncated       Ollama model qa-model was cut off at 1200 tokens before finishing. Raise SLICE_MAX_TOKENS, or ask for a s   (0.9s)
+  http500           ModelError      Ollama returned HTTP 500: {"error": "model requires more system memory (9.1 GiB) than is available"}   (0.8s)
+  http404           ModelNotFound   Model 'qa-model' not found in Ollama. Pull it first (outside this app): ollama pull qa-model This app doe   (0.9s)
+  slow              ProviderTimeout Ollama request timed out after 1s. The model may still be loading, or too big for this machine - raise OL   (1.9s)
+----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 61325)
+Traceback (most recent call last):
+  File "C:\Python313\Lib\socketserver.py", line 697, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\socketserver.py", line 362, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python313\Lib\socketserver.py", line 766, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\server.py", line 436, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Python313\Lib\http\server.py", line 424, in handle_one_request
+    method()
+    ~~~~~~^^
+  File "C:\Users\SHAMEER\AppData\Local\Temp\claude\d--projects-DeadLock\bd754d1f-70b1-4172-b9de-c081bd507e00\scratchpad\qa_offline.py", line 183, in do_POST
+    return self._send(200, ok(json.dumps(V2)))
+           ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\SHAMEER\AppData\Local\Temp\claude\d--projects-DeadLock\bd754d1f-70b1-4172-b9de-c081bd507e00\scratchpad\qa_offline.py", line 147, in _send
+    self.wfile.write(raw)
+    ~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Python313\Lib\socketserver.py", line 845, in write
+    self._sock.sendall(b)
+    ~~~~~~~~~~~~~~~~~~^^^
+ConnectionAbortedError: [WinError 10053] An established connection was aborted by the software in your host machine
+----------------------------------------
