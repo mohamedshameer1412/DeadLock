@@ -57,6 +57,62 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (1);
     COMMIT;
     """),
+    (2, """
+    BEGIN;
+
+    -- One uploaded file. The original bytes live on disk (data/uploads/<user>/<sha256>), never in SQLite.
+    CREATE TABLE documents (
+        id           INTEGER PRIMARY KEY,
+        subject_id   INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        kind         TEXT NOT NULL CHECK (kind IN ('txt', 'pdf', 'docx', 'url')),
+        title        TEXT NOT NULL,
+        source       TEXT NOT NULL,                   -- the file name as uploaded, or the URL
+        sha256       TEXT NOT NULL,
+        bytes        INTEGER NOT NULL,
+        pages        INTEGER,
+        status       TEXT NOT NULL CHECK (status IN ('parsed', 'empty', 'failed')),
+        warnings     TEXT NOT NULL DEFAULT '[]',      -- JSON list of things the student should know
+        created_at   REAL NOT NULL,
+        UNIQUE (subject_id, sha256)
+    );
+
+    CREATE TABLE topics (
+        id          INTEGER PRIMARY KEY,
+        subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        name        TEXT NOT NULL,
+        path        TEXT NOT NULL,                    -- "Chapter 3 > Trees"
+        ordinal     INTEGER NOT NULL,
+        origin      TEXT NOT NULL CHECK (origin IN ('heading', 'document', 'manual')),
+        UNIQUE (subject_id, path)
+    );
+
+    CREATE TABLE chunks (
+        id            INTEGER PRIMARY KEY,
+        subject_id    INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        document_id   INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+        topic_id      INTEGER REFERENCES topics(id) ON DELETE SET NULL,
+        ordinal       INTEGER NOT NULL,
+        page_start    INTEGER,
+        page_end      INTEGER,
+        heading_path  TEXT NOT NULL DEFAULT '',
+        text          TEXT NOT NULL,
+        sha256        TEXT NOT NULL
+    );
+    CREATE INDEX chunks_by_subject ON chunks(subject_id, document_id, ordinal);
+    CREATE INDEX chunks_by_topic ON chunks(topic_id);
+
+    -- Keyword index (BM25). Searches always join back to chunks and filter by subject_id.
+    CREATE VIRTUAL TABLE chunks_fts USING fts5(text, content='chunks', content_rowid='id', tokenize='porter unicode61');
+    CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+        INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+
+    INSERT INTO schema_version(v) VALUES (2);
+    COMMIT;
+    """),
 ]
 
 

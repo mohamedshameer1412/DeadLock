@@ -1,4 +1,4 @@
-"""StudyHub web app (Phase A1: accounts, sessions, subjects).
+"""StudyHub web app (Phase A1: accounts, sessions, subjects. Phase A2: materials and search).
 
 Run:  uvicorn studyhub.web.app:app --port 8100
       STUDYHUB_DB=path/to/file.db   STUDYHUB_COOKIE_SECURE=1 (when served over HTTPS)
@@ -16,10 +16,10 @@ from __future__ import annotations
 import secrets
 from contextlib import contextmanager
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
-from studyhub import auth, settings
+from studyhub import auth, ingest, retrieval, settings
 from studyhub import db as studydb
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import ui
@@ -30,7 +30,12 @@ app = FastAPI(title="StudyHub", docs_url=None, redoc_url=None, openapi_url=None)
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
-    response = await call_next(request)
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > settings.max_upload_bytes() + 64 * 1024:
+        response = _html("Too large", "<h1>That upload is too large</h1><p class='sub'>The limit is "
+                         f"{settings.max_upload_bytes() / 1048576:.3g} MB per file.</p>", status=413)   # before parsing the body
+    else:
+        response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; style-src 'unsafe-inline'; script-src 'none'; form-action 'self'; "
         "frame-ancestors 'none'; base-uri 'none'")
@@ -215,7 +220,14 @@ def subject(request: Request, subject_id: str):
         row = Repo(db).get_subject(user["id"], _int(subject_id) or -1)
         if row is None:
             return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
-        return _html(row["name"], ui.subject_page(row, session.csrf), user=user, csrf=session.csrf)
+        return _subject_html(db, user, session, row)
+
+
+def _subject_html(db, user, session, row, *, status: int = 200, error: str | None = None, upload_error: str | None = None):
+    repo = Repo(db)
+    body = ui.subject_page(row, session.csrf, error=error, upload_error=upload_error,
+                           documents=repo.list_documents(user["id"], row["id"]), topics=repo.list_topics(user["id"], row["id"]))
+    return _html(row["name"], body, status=status, user=user, csrf=session.csrf)
 
 
 @app.post("/subjects/{subject_id}/edit")
@@ -235,8 +247,7 @@ def edit_subject(request: Request, subject_id: str, name: str = Form(""), descri
         try:
             repo.update_subject(user["id"], sid, name, description)
         except SubjectError as e:
-            return _html(row["name"], ui.subject_page(row, session.csrf, error=str(e)), status=400,
-                         user=user, csrf=session.csrf)
+            return _subject_html(db, user, session, row, status=400, error=str(e))
     return RedirectResponse(f"/subjects/{sid}", status_code=303)
 
 
@@ -254,7 +265,80 @@ def delete_subject(request: Request, subject_id: str, confirm: str = Form(""), c
         if row is None:
             return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
         if confirm != "yes":
-            return _html(row["name"], ui.subject_page(row, session.csrf, error="Tick the box to confirm the deletion."),
-                         status=400, user=user, csrf=session.csrf)
-        repo.delete_subject(user["id"], sid)
+            return _subject_html(db, user, session, row, status=400, error="Tick the box to confirm the deletion.")
+        ingest.delete_subject(db, user["id"], sid)
     return RedirectResponse("/subjects", status_code=303)
+
+
+# ---------------------------------------------------------------------------------------- materials
+
+def _member(request: Request, db, subject_id: str, *, form_csrf: str | None = None):
+    """Common gate for subject pages: (user, session, subject) or a ready response. A form_csrf of None = read-only."""
+    ctx = _signed_in(request, db)
+    if ctx is None:
+        return None, RedirectResponse("/login", status_code=303)
+    user, session = ctx
+    if form_csrf is not None and not auth.same_token(form_csrf, session.csrf):
+        return None, _forbidden()
+    row = Repo(db).get_subject(user["id"], _int(subject_id) or -1)
+    if row is None:
+        return None, _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+    return (user, session, row), None
+
+
+@app.post("/subjects/{subject_id}/materials")
+def upload_material(request: Request, subject_id: str, file: UploadFile = File(...), csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        limit = settings.max_upload_bytes()
+        data = file.file.read(limit + 1)
+        try:
+            result = ingest.ingest(db, user["id"], row["id"], file.filename or "upload", data)
+        except ingest.IngestError as e:
+            return _subject_html(db, user, session, row, status=400, upload_error=str(e))
+    return RedirectResponse(f"/subjects/{row['id']}/materials/{result.document_id}" + ("?dup=1" if result.duplicate else ""),
+                            status_code=303)
+
+
+@app.get("/subjects/{subject_id}/materials/{document_id}")
+def material(request: Request, subject_id: str, document_id: str, dup: str = ""):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        repo = Repo(db)
+        doc = repo.get_document(user["id"], row["id"], _int(document_id) or -1)
+        if doc is None:
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+        chunks = repo.document_chunks(user["id"], row["id"], doc["id"])
+        notice = "This exact file was already in this subject, so nothing was added." if dup == "1" else None
+        return _html(doc["title"], ui.document_page(row, doc, chunks, session.csrf, notice=notice),
+                     user=user, csrf=session.csrf)
+
+
+@app.post("/subjects/{subject_id}/materials/{document_id}/delete")
+def delete_material(request: Request, subject_id: str, document_id: str, csrf: str = Form("")):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id, form_csrf=csrf)
+        if early:
+            return early
+        user, session, row = ctx
+        if not ingest.delete_document(db, user["id"], row["id"], _int(document_id) or -1):
+            return _html("Not found", ui.not_found(), status=404, user=user, csrf=session.csrf)
+    return RedirectResponse(f"/subjects/{row['id']}", status_code=303)
+
+
+@app.get("/subjects/{subject_id}/search")
+def search_materials(request: Request, subject_id: str, q: str = ""):
+    with _open() as db:
+        ctx, early = _member(request, db, subject_id)
+        if early:
+            return early
+        user, session, row = ctx
+        q = " ".join(q.split())[:200]
+        results = retrieval.search(db, user["id"], row["id"], q, k=8) if q else []
+        return _html("Search", ui.search_page(row, q, results), user=user, csrf=session.csrf)

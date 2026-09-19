@@ -6,5 +6,7 @@ fastembed>=0.4         # local embeddings - no API key, no rate limit
 fastapi>=0.115         # the expert callback form
 python-multipart>=0.0.9  # FastAPI needs it to read a submitted form; web/expert.py fails to import without it
 uvicorn>=0.30          # serves it
+pypdf>=5.0             # StudyHub: read uploaded PDFs
+python-docx>=1.1       # StudyHub: read uploaded Word documents
 # dev
 pytest>=8.0

@@ -1,0 +1,30 @@
+server up: uvicorn studyhub.web.app:app (production scrypt cost, real uploads folder)
+PASS  1  account and subject created in the browser  ::  subject 1
+PASS  2  TXT chosen in the file picker and uploaded -> document page with 3 passages and its headings  ::  data-structures.txt -> /subjects/1/materials/1
+PASS  3  PDF with bookmarks: title from metadata, 2 pages, passages show page numbers  ::  StudyHub | Signed in as alice | Log out | 
+PASS  4  DOCX: heading styles and the table row are extracted  ::  StudyHub | Signed in as alice | Log out
+PASS  5  a real-world PDF (69 KB, from this repo) is read: pages and passages found  ::  2 pages, 5 passages, title "Signed in as alice"
+PASS  6  a scanned PDF is reported, not silently empty  ::  warning shown on the document page
+PASS  7  an .exe picked anyway is refused with a message, on the subject page (HTTP 400)  ::  HTTP 400
+PASS  8  the same file again is recognised as a duplicate  ::  ?dup=1
+PASS  9  the subject page lists the 5 documents and the topics found  ::  5 document links
+PASS  10 search returns the right passage first, with its document and heading  ::  A binary tree is a hierarchical structure in which every node has at most two children, ca
+PASS  11 the DOCX passage is found by its own words  ::  found in networks.docx
+PASS  12 a question the materials do not cover returns nothing (no guessing)  ::  no passages
+PASS  13 search syntax typed by a user does not break the search page  ::  HTTP 200
+PASS  14 a file whose text contains <script> and <img onerror> is displayed as text, never executed  ::  img: 0, script: 0
+PASS  15 removing a material works, and its page is gone (404)  ::  5 documents left; old page HTTP 404
+PASS  16 another account gets 404 for alice's document, search and subject, and no text leaks  ::  document true, search true, subject true
+PASS  17 no JavaScript errors in the session  ::  0 errors
+
+BROWSER RESULT: 17/17 passed
+
+SQLITE (read directly):
+   document: (1, 'txt', 'data-structures', None, 'parsed', 3)
+   document: (2, 'pdf', 'Course notes', 2, 'parsed', 2)
+   document: (3, 'docx', 'networks', None, 'parsed', 2)
+   document: (4, 'pdf', 'CEG ASTRA Info Session Script = POV', 2, 'parsed', 5)
+   document: (5, 'pdf', 'scan', 2, 'empty', 0)
+   topics: 8  chunks: 12
+   stored originals: 5 (names are sha256 hex only: True )
+server stopped: no LISTENING socket
