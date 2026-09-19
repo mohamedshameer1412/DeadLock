@@ -1,0 +1,12 @@
+{
+  "binary_trees": {"label": "Binary Trees", "prerequisite": "recursion"},
+  "recursion": {"label": "Recursion", "prerequisite": "function_calls"},
+  "function_calls": {"label": "Function Calls", "prerequisite": "variables"},
+  "variables": {"label": "Variables & Types", "prerequisite": null},
+  "sorting": {"label": "Sorting Algorithms", "prerequisite": "arrays"},
+  "arrays": {"label": "Arrays", "prerequisite": "variables"},
+  "graphs": {"label": "Graph Theory", "prerequisite": "binary_trees"},
+  "dynamic_programming": {"label": "Dynamic Programming", "prerequisite": "recursion"},
+  "hashing": {"label": "Hash Tables", "prerequisite": "arrays"},
+  "big_o": {"label": "Big-O Notation", "prerequisite": "variables"}
+}
