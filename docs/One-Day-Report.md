@@ -14,16 +14,16 @@ The current implementation focuses on a knowledge-agent workflow that:
 2. Retrieves relevant academic knowledge from a provided source.
 3. Generates a question for the selected topic.
 4. Collects the student's confidence level and answer.
-5. Evaluates the answer using a separate evaluation agent.
+5. checks the answer using a separate assessment agent.
 6. Stores structured records for future learning decisions.
-7. Routes the student forward or backward based on the evaluation result.
+7. Routes the student forward or backward based on the assessment result.
 
 The demonstrated workflow uses two primary agents:
 
 - `spot_agent` — identifies and asks a topic-focused question.
-- `gate_agent` — evaluates the student's answer and controls progression.
+- `gate_agent` — checks the student's answer and controls progression.
 
-The current internal development estimate is approximately **80% complete**. This percentage is an internal progress estimate and is not a judging score or independently verified completion percentage.
+The current internal development estimate is approximately **80% complete**. This percentage is an internal progress estimate and is not a review score or independently verified completion percentage.
 
 ---
 
@@ -37,10 +37,10 @@ The development work focused on:
 - Connecting the agent workflow to a knowledge source.
 - Generating topic-specific questions.
 - Collecting student answers and confidence levels.
-- Evaluating student responses through a separate agent.
+- checking student responses through a separate agent.
 - Maintaining structured records.
 - Protecting prerequisite routing through application-controlled graph logic.
-- Producing an execution trace that can be demonstrated to judges.
+- Producing an execution trace that can be demonstrated to reviewers.
 
 The intended learning flow is:
 
@@ -53,7 +53,7 @@ spot_agent generates a question
         ↓
 Student provides confidence and answer
         ↓
-gate_agent evaluates the answer
+gate_agent checks the answer
         ↓
 VerdictRecord is created
         ↓
@@ -77,20 +77,20 @@ QUESTIONING
     ↓
 Student submits answer
     ↓
-EVALUATING
+checking
     ↓
 gate_agent
     ↓
 COMPLETE or BACKWARD_PASS
 ```
 
-The system separates question generation from answer evaluation so that each component can be developed, tested, and improved independently.
+The system separates question generation from answer assessment so that each component can be developed, tested, and improved independently.
 
 This separation provides the following benefits:
 
-- The question-generation prompt can be changed without modifying evaluation logic.
-- The evaluation prompt can be improved independently.
-- The system can maintain a clear boundary between asking a question and judging an answer.
+- The question-generation prompt can be changed without modifying assessment logic.
+- The assessment prompt can be improved independently.
+- The system can maintain a clear boundary between asking a question and review an answer.
 - Graph-based progression can be controlled by application code rather than relying entirely on model output.
 
 ---
@@ -148,7 +148,7 @@ The retrieved content covered concepts such as:
 - Partition maintenance.
 - Flexibility in designing child tables.
 
-The purpose of source retrieval is to ensure that the agent's questions and evaluations are connected to academic material rather than being generated without a knowledge basis.
+The purpose of source retrieval is to ensure that the agent's questions and assessments are connected to academic material rather than being generated without a knowledge basis.
 
 ---
 
@@ -195,7 +195,7 @@ The `spot_agent` is considered complete when:
 
 #### Design decision
 
-The question generator and gate evaluator are separated so they can be tuned independently.
+The question generator and gate checking component are separated so they can be tuned independently.
 
 A fallback mechanism is also included to reduce the possibility of the state machine stopping because of an invalid or unexpected model response.
 
@@ -203,7 +203,7 @@ A fallback mechanism is also included to reduce the possibility of the state mac
 
 ### Stage 5: Implement `gate_agent`
 
-The `gate_agent` is responsible for evaluating the student's response.
+The `gate_agent` is responsible for checking the student's response.
 
 The agent calls the prompt located at:
 
@@ -230,12 +230,12 @@ AnswerRecord
 prior verdict history for the topic
 ```
 
-The evaluator considers:
+The checking component considers:
 
 - The question that was asked.
 - The answer submitted by the student.
-- The student's previous evaluation history.
-- The topic being evaluated.
+- The student's previous assessment history.
+- The topic being checked.
 - Previously identified weaknesses or objections.
 
 #### Completion condition
@@ -258,7 +258,7 @@ This ensures that:
 - Model-generated output cannot directly corrupt the progression graph.
 - The system reduces the risk of hallucinated prerequisite relationships.
 
-The model evaluates the answer, while the application controls the actual route.
+The model checks the answer, while the application controls the actual route.
 
 This creates a separation between:
 
@@ -306,11 +306,11 @@ Possible information includes:
 
 #### VerdictRecord
 
-Stores information related to the evaluation.
+Stores information related to the assessment.
 
 Possible information includes:
 
-- Evaluation result.
+- assessment result.
 - Answer sufficiency.
 - Identified weakness or objection.
 - Routing decision.
@@ -319,7 +319,7 @@ Possible information includes:
 
 Structured persistence is important because NEXUS requires historical learning information to support:
 
-- Repeated evaluation.
+- Repeated assessment.
 - Weakness identification.
 - Adaptive questioning.
 - Backward passes.
@@ -551,11 +551,11 @@ Final Agent State: complete
 
 ### KA-009 — VerdictRecord Persistence
 
-**Objective:** Verify that `gate_agent` stores an evaluation result.
+**Objective:** Verify that `gate_agent` stores an assessment result.
 
 **Expected result:**
 
-- One `VerdictRecord` is written after evaluation.
+- One `VerdictRecord` is written after assessment.
 - The verdict is linked to the question, answer, and topic.
 
 **Current evidence:**
@@ -567,9 +567,9 @@ Final Agent State: complete
 
 **Required verification:**
 
-- Execute the evaluation stage.
+- Execute the assessment stage.
 - Inspect the persisted verdict.
-- Confirm that the verdict contains the expected routing or evaluation information.
+- Confirm that the verdict contains the expected routing or assessment information.
 
 ---
 
@@ -606,7 +606,7 @@ Final Agent State: complete
 **Expected result:**
 
 ```text
-EVALUATING → BACKWARD_PASS
+checking → BACKWARD_PASS
 ```
 
 The system should identify the relevant prerequisite or weaker topic and route the student accordingly.
@@ -622,7 +622,7 @@ The system should identify the relevant prerequisite or weaker topic and route t
 **Required verification:**
 
 - Submit an intentionally incomplete answer.
-- Run the evaluator.
+- Run the checking component.
 - Confirm that the verdict identifies the weakness.
 - Confirm that the system routes to the correct prerequisite topic.
 - Confirm that the route is graph-controlled.
@@ -653,19 +653,18 @@ The remaining verification work concerns internal state persistence, graph-contr
 
 ---
 
-## 7. Judging Criteria Alignment
+## 7. project requirements Alignment
 
-The project is aligned with the stated judging structure:
+The project is aligned with the stated review structure:
 
 ```text
-Criterion 1: Working Agentic Slice       — 35
-Criterion 2: Evidence Real People Used It — 35
-Criterion 3: Whether It Helped           — 20
-Criterion 4: How We Worked / Show It     — 10
-Total                                    — 100
+Working Agentic Slice
+Evidence Real People Used It
+Whether It Helped          
+How We Worked / Show It     
 ```
 
-### Criterion 1 — Working Agentic Slice — 35
+### Working Agentic Slice
 
 The current implementation addresses the working agentic slice through:
 
@@ -673,7 +672,7 @@ The current implementation addresses the working agentic slice through:
 - Topic-based interaction.
 - Knowledge-source integration.
 - `spot_agent` question generation.
-- `gate_agent` answer evaluation.
+- `gate_agent` answer assessment.
 - Structured records.
 - State-based workflow design.
 - Application-controlled prerequisite routing.
@@ -694,7 +693,7 @@ The current implementation addresses the working agentic slice through:
 
 ---
 
-### Criterion 2 — Evidence That Real People Used It — 35
+### Evidence That Real People Used It
 
 The supplied CLI output demonstrates a development execution, but it does not establish evidence that external or independent users tested the system.
 
@@ -716,14 +715,14 @@ The current evidence should therefore be described as developer-run testing unle
 
 ---
 
-### Criterion 3 — Whether It Helped — 20
+### Whether It Helped
 
 NEXUS is intended to help students by:
 
 - Identifying weak concepts.
 - Asking topic-specific questions.
 - Considering confidence levels.
-- Evaluating answer sufficiency.
+- checking answer sufficiency.
 - Supporting backward learning routes.
 - Building a history of questions, answers, and verdicts.
 - Supporting adaptive learning rather than only static content delivery.
@@ -743,7 +742,7 @@ Potential evidence includes:
 
 ---
 
-### Criterion 4 — How We Worked and Show It — 10
+### How We Worked and Show It 
 
 The development process can be demonstrated through:
 
@@ -798,7 +797,7 @@ Confidence submission
     ↓
 Answer submission
     ↓
-Evaluation
+assessment
     ↓
 VerdictRecord
     ↓
@@ -816,11 +815,11 @@ Capture:
 
 ### Step 3 — Execute a Negative Answer Test
 
-Use an incomplete or incorrect answer to test the evaluation behavior.
+Use an incomplete or incorrect answer to test the assessment behavior.
 
 Verify that:
 
-- The evaluator recognizes insufficient content.
+- The checking component recognizes insufficient content.
 - The verdict records the weakness.
 - The system does not incorrectly mark the topic as complete.
 - The appropriate backward route is selected.
@@ -851,7 +850,7 @@ Capture a complete backward-pass execution:
 ```text
 QUESTIONING
     ↓
-EVALUATING
+checking
     ↓
 Insufficient answer
     ↓
@@ -900,7 +899,7 @@ The live demonstration should follow a short, repeatable sequence:
 3. Show the retrieved academic source.
 4. Display the generated question.
 5. Submit confidence and answer.
-6. Run evaluation.
+6. Run assessment.
 7. Show the verdict.
 8. Demonstrate either completion or backward routing.
 9. Show the stored records.
@@ -917,7 +916,7 @@ The following limitations apply to the current evidence:
 3. The full backward-pass workflow requires an actual execution trace.
 4. External-user evidence has not been established by the supplied output.
 5. Educational effectiveness requires user-based evidence.
-6. The 80% figure is an internal development estimate, not a judging score or independently verified completion percentage.
+6. The 80% figure is an internal development estimate, not a review score or independently verified completion percentage.
 
 The report should not claim that unverified components are fully operational until direct evidence is collected.
 
@@ -947,4 +946,1122 @@ The next priority is to convert the implementation claims into directly verifiab
 - Verifying graph-controlled prerequisite selection.
 - Conducting and documenting independent user testing.
 
-The report maintains a distinction between demonstrated behavior, implementation-level claims, and functionality that still requires verification. This distinction should be preserved in the final submission and live judging demonstration.
+The report maintains a distinction between demonstrated behavior, implementation-level claims, and functionality that still requires verification. This distinction should be preserved in the final submission and live review demonstration.
+
+
+---
+
+## 11. Additional Execution Evidence — Quiz Generation and assessment
+
+The following screenshots provide additional evidence of the NEXUS knowledge and assessment workflow. They demonstrate document inspection, quiz generation, interactive answering, answer assessment, score calculation, time tracking, and final verdict generation.
+
+### 11.1 Evidence A — Knowledge Agent Answer and Source Grounding
+
+**Executed topic:**
+
+```text
+Explain Partitioning Using Inheritance
+```
+
+**Observed terminal output:**
+
+```text
+Agent started. Run ID: run_7b24f425bd85
+Question: Explain Partitioning Using Inheritance
+Processing...
+
+Final Agent State: complete
+```
+
+The terminal then displayed an `ANSWER` section describing PostgreSQL partitioning using inheritance.
+
+The answer covered:
+
+1. Child-table flexibility.
+2. Multiple inheritance.
+3. Custom partitioning logic.
+4. Root and child table creation.
+5. The `INHERITS(measurement)` clause.
+6. Check constraints for data-range validation.
+7. Data redirection based on partition constraints.
+8. Partition maintenance.
+9. Dropping old partitions.
+10. Detaching partitions concurrently.
+11. Index creation on partitions.
+
+The output also included source references.
+
+**Source identified:**
+
+```text
+Postgresql support for partitioning and inheritance.pdf
+```
+
+**Referenced pages and section:**
+
+```text
+Page: 4
+Section: Partitioning Using Inheritance
+
+Page: 3
+Section: Partitioning Using Inheritance
+
+Page: 1
+Section: PostgreSQL offers built-in support for the following forms of partitioning
+```
+
+### 11.2 Evidence B — Source Evidence and Verification / Grounding
+
+The terminal displayed an `EVIDENCE` section containing source-supported statements.
+
+The evidence included the following concepts:
+
+- Inheritance-based partitioning can provide greater flexibility than built-in declarative partitioning in some situations.
+- Child tables can contain additional columns that are not present in the parent table.
+- A root table can be created without data.
+- Child tables can inherit from the root table using `INHERITS(measurement)`.
+- Check constraints can be used to enforce valid data ranges.
+- Users can define arbitrary data-division methods.
+- Performance may depend on the effectiveness of constraint exclusion.
+
+The terminal also displayed a `VERIFICATION / GROUNDING` section.
+
+The grounding explanation stated that the answer was derived from three key evidence points:
+
+1. The document explains that inheritance allows child tables to have extra columns compared with declarative partitioning.
+2. The document provides an example involving root and child tables, inheritance, and check constraints.
+3. The document identifies custom partitioning as a feature of inheritance-based approaches.
+
+**Evidence interpretation:**
+
+This output supports the claim that the knowledge response was connected to retrieved document content and that the system displayed both source references and a grounding explanation.
+
+---
+
+### 11.3 Evidence C — Interactive Quiz Question and Correct assessment
+
+The interactive quiz displayed a question identified as:
+
+```text
+[Q2/5] (Medium - Concept: The Linux Commands Handbook)
+What is Linux?
+```
+
+The user selected:
+
+```text
+Your Answer (A/B/C/D): b
+```
+
+The system displayed:
+
+```text
+[CORRECT!]
+Explanation: This answer is drawn directly from the document: "an operating system, like macOS or Windows"
+```
+
+**Observed behavior:**
+
+- The question included a difficulty level.
+- The question included a concept label.
+- The user submitted an answer through the CLI.
+- The system checked the answer.
+- The system displayed whether the answer was correct.
+- The system generated an explanation linked to the document.
+
+**Status:** PASS — demonstrated through terminal output.
+
+---
+
+### 11.4 Evidence D — Interactive Quiz Incorrect Answer and Explanation
+
+The interactive quiz displayed:
+
+```text
+[Q3/5] (Hard - Concept: The Linux Commands Handbook)
+What is Android?
+```
+
+The user selected:
+
+```text
+Your Answer (A/B/C/D): d
+```
+
+The system displayed:
+
+```text
+[INCORRECT] The correct answer was (C).
+Explanation: This answer is drawn directly from the document: "based on (a modified version of) Linux"
+```
+
+**Observed behavior:**
+
+- The quiz presented a hard-level question.
+- The user submitted an incorrect option.
+- The system identified the response as incorrect.
+- The system displayed the correct option.
+- The system generated an explanation based on the source document.
+
+**Status:** PASS — demonstrated through terminal output.
+
+This provides evidence of a negative answer path in the quiz assessment workflow. It does not, by itself, prove that the separate NEXUS backward-pass routing mechanism was executed.
+
+---
+
+### 11.5 Evidence E — Interactive Quiz Correct Answer
+
+The interactive quiz displayed:
+
+```text
+[Q5/5] (Medium - Concept: The Linux Commands Handbook)
+What is Bash?
+```
+
+The user selected:
+
+```text
+Your Answer (A/B/C/D): a
+```
+
+The system displayed:
+
+```text
+[CORRECT!]
+Explanation: This answer is drawn directly from the document: "Bourne-again shell"
+```
+
+**Observed behavior:**
+
+- The quiz displayed the question number and total number of questions.
+- The question included a difficulty level and concept.
+- The submitted answer was checked.
+- The system displayed a correctness result.
+- The system provided a document-grounded explanation.
+
+**Status:** PASS — demonstrated through terminal output.
+
+---
+
+### 11.6 Evidence F — Quiz Completion and Learning Verdict
+
+At the end of the interactive quiz, the terminal displayed:
+
+```text
+=============================================================
+                    QUIZ COMPLETE
+Candidate: Achuthan
+Final Score: 3 / 5 (60.0%)
+Time Taken: 270.9 seconds
+Verdict: PASS (Good Understanding)
+=============================================================
+```
+
+**Observed metrics:**
+
+| Metric | Observed result |
+|---|---|
+| Candidate | Achuthan |
+| Total questions | 5 |
+| Final score | 3 / 5 |
+| Percentage | 60.0% |
+| Time taken | 270.9 seconds |
+| Final verdict | PASS (Good Understanding) |
+
+**Evidence interpretation:**
+
+The output demonstrates that the quiz workflow can:
+
+- Track the candidate.
+- Count the total number of questions.
+- Calculate the final score.
+- Calculate the percentage.
+- Track the time taken.
+- Generate a final understanding verdict.
+
+The displayed verdict is an application-generated result for this particular quiz execution. It should not be treated as proof of general educational effectiveness without repeated testing and comparison data.
+
+---
+
+### 11.7 Evidence G — Document Inspection and Quiz Generation
+
+The quiz-generation command shown in the terminal was:
+
+```bash
+python -X utf8 generate_quiz.py --pdf "tracer/sessions/uploads/linux-commands-handbook.pdf" --num-questions 5 --interactive --student "Achuthan"
+```
+
+The document inspection output displayed:
+
+```text
+[*] Inspecting Document: linux-commands-handbook.pdf
+    Title:      The Linux Commands Handbook
+    Total Pages: 135
+    Excerpt:    1
+```
+
+The quiz-generation output then displayed:
+
+```text
+[*] Generating 5 quiz questions directly from document content...
+    [PASS] Successfully created quiz with 5 questions.
+[*] Saved quiz data to:
+    D:\Projects\Personal\DeadLock\tracer\sessions\linux-commands-handbook_quiz.json
+```
+
+The interactive quiz then started with:
+
+```text
+=============================================================
+        INTERACTIVE QUIZ: QUIZ ON THE LINUX COMMANDS HANDBOOK
+Candidate: Achuthan | Total Questions: 5
+=============================================================
+```
+
+**Observed behavior:**
+
+1. The system inspected the uploaded PDF.
+2. The document title was identified.
+3. The total page count was displayed.
+4. Five quiz questions were generated.
+5. Quiz data was saved as a JSON file.
+6. An interactive quiz session was started for the candidate.
+
+**Status:** PASS — demonstrated through terminal output.
+
+---
+
+## 12. Consolidated Evidence Status After Additional Screenshots
+
+The additional screenshots strengthen the evidence for document-based quiz generation and interactive assessment.
+
+| Capability | Evidence from screenshots | Status |
+|---|---|---:|
+| Document inspection | PDF title and page count displayed | PASS |
+| Quiz generation | Five questions generated successfully | PASS |
+| Quiz JSON persistence | Saved quiz JSON path displayed | PASS |
+| Interactive question display | Questions shown with difficulty and concept | PASS |
+| Correct-answer assessment | Correct response and explanation displayed | PASS |
+| Incorrect-answer assessment | Incorrect response, correct option, and explanation displayed | PASS |
+| Source-grounded explanation | Explanations linked to document text | PASS |
+| Score calculation | `3 / 5 (60.0%)` displayed | PASS |
+| Time tracking | `270.9 seconds` displayed | PASS |
+| Final verdict generation | `PASS (Good Understanding)` displayed | PASS |
+| NEXUS QuestionRecord persistence | No direct record inspection shown | NOT VERIFIED |
+| NEXUS AnswerRecord persistence | No direct record inspection shown | NOT VERIFIED |
+| NEXUS VerdictRecord persistence | No direct record inspection shown | NOT VERIFIED |
+| Graph-controlled prerequisite routing | No direct routing trace shown | NOT VERIFIED |
+| NEXUS backward-pass execution | No direct backward-pass trace shown | NOT VERIFIED |
+| Independent user testing | Candidate execution shown, independence not established | NOT VERIFIED |
+| Educational improvement over time | No before-and-after learning measurement shown | NOT VERIFIED |
+
+---
+
+## 13. Evidence Boundaries
+
+The screenshots demonstrate two related capabilities:
+
+1. A knowledge-agent flow that retrieves source-grounded information for a topic.
+2. A document-based interactive quiz flow that generates questions, checks answers, tracks scores and time, and produces a final verdict.
+
+The evidence should be presented accurately:
+
+- The screenshots demonstrate actual terminal executions.
+- The quiz workflow shows both correct and incorrect answer handling.
+- The quiz workflow shows source-linked explanations.
+- The final score and verdict are visible in the terminal.
+- The evidence does not independently verify every internal NEXUS record or graph transition.
+- The quiz result for one candidate should not be presented as statistically validated educational improvement.
+- A successful quiz completion should not automatically be described as proof of a completed NEXUS backward pass.
+
+The final review demonstration should clearly distinguish:
+
+```text
+Demonstrated in terminal
+        ↓
+Supported by implementation description
+        ↓
+Requires additional direct verification
+```
+
+This distinction maintains technical accuracy and prevents unsupported claims during assessment.
+
+---
+
+# 14. Agent-a-thon assessment-Ready Assessment
+
+## 14.1 Official assessment Pattern
+
+NEXUS is checked using four criteria:
+
+| Criterion | Weight |
+|---|---:|
+| A working agentic slice — it runs, one step reviewers another step's work, and sends it back | 35 |
+| Evidence that real people used it — external walkthroughs and changes based on observations | 35 |
+| Whether it helped — what the user could do afterward and how incorrect assumptions were corrected | 20 |
+| How the team worked and showed it — commit rhythm, demo coverage, and handling questions | 10 |
+| **Total** | **100** |
+
+The assessment pattern makes evidence as important as implementation. The final submission must therefore demonstrate not only that NEXUS runs, but also that people used it, the team learned from observed failures, and the product changed because of that learning.
+
+## 14.2 Internal assessment Target
+
+The team’s internal preparation target is **95/100**. This is a target for evidence preparation, not an official or guaranteed score. The checking component must assign marks based on repository evidence, real-user walkthroughs, observed outcomes, and the live demonstration. No score should be claimed as official until it is actually produced by the checking component.
+
+---
+
+# 15. Criterion 1 — Working Agentic Slice — 35 Marks
+
+NEXUS is designed as a multi-step agentic workflow rather than a single LLM response:
+
+```text
+Student Topic
+    ↓
+Knowledge Source Retrieval
+    ↓
+spot_agent
+    ↓
+QUESTIONING
+    ↓
+Student Confidence + Answer
+    ↓
+gate_agent
+    ↓
+checking
+    ↓
+VerdictRecord
+    ↓
+COMPLETE or BACKWARD_PASS
+```
+
+The `spot_agent` generates a topic-focused question using the topic identifier, topic label, difficulty level, and previous objections. The `gate_agent` checks the latest question and answer together with prior verdict history.
+
+The application, rather than the language model, controls prerequisite routing through graph lookup. This prevents the model from inventing nonexistent prerequisite nodes. The separation is:
+
+```text
+LLM reasoning + application state control + graph-controlled routing
+```
+
+### Evidence already demonstrated
+
+- CLI topic input was accepted.
+- An agent run ID was created.
+- A knowledge source was used.
+- Source references and grounding explanations were displayed.
+- A final agent state was reported as `complete`.
+- A PDF was inspected and five quiz questions were generated.
+- Correct and incorrect quiz responses were checked.
+- Source-linked explanations were displayed.
+- Score, percentage, time taken, and a final verdict were calculated.
+
+### Evidence still required for a complete working-slice demonstration
+
+1. Show `QuestionRecord` persistence.
+2. Show `AnswerRecord` persistence.
+3. Show `VerdictRecord` persistence.
+4. Capture a complete `spot_agent → gate_agent` trace.
+5. Execute and record a real `BACKWARD_PASS`.
+6. Test an invalid prerequisite identifier and prove that graph lookup overrides it.
+
+The final demonstration must show intermediate work, not only the final `complete` message.
+
+---
+
+# 16. Criterion 2 — Evidence That Real People Used It — 35 Marks
+
+The project must include a walkthrough with at least one person outside the development team. Developer-only execution should be labeled as developer testing and should not be presented as independent-user evidence.
+
+## Required walkthrough process
+
+```text
+External participant
+    ↓
+Participant performs a task with limited guidance
+    ↓
+Team observes confusion, errors, delays, or unexpected behavior
+    ↓
+Team identifies an assumption that was wrong or incomplete
+    ↓
+A focused product or workflow change is made
+    ↓
+The participant or another tester repeats the task
+    ↓
+The result is recorded
+```
+
+For every participant, record:
+
+| Field | Required information |
+|---|---|
+| Participant ID | Anonymous identifier where appropriate |
+| Participant type | Student, peer, or external tester |
+| Task | What the participant was asked to do |
+| Observed issue | Confusion, failure, delay, or misunderstanding |
+| Feedback | Actual feedback, not invented feedback |
+| Change made | Code, prompt, UI, or workflow modification |
+| Retest result | What happened after the change |
+| Evidence | Screenshot, recording, log, or commit reference |
+
+The current screenshots prove terminal execution and quiz interaction, but they do not by themselves prove external-user participation. This gap must be closed with a genuine walkthrough and evidence of a change made because of what was observed.
+
+---
+
+# 17. Criterion 3 — Whether It Helped — 20 Marks
+
+NEXUS is intended to help learners identify weak concepts, receive source-grounded explanations, and revisit prerequisite topics instead of merely receiving a final score.
+
+The intended benefit is measured by asking:
+
+> What could the learner do after using NEXUS that the learner could not reliably do before using it?
+
+The quiz execution demonstrated:
+
+```text
+Final Score: 3 / 5 (60.0%)
+Time Taken: 270.9 seconds
+Verdict: PASS (Good Understanding)
+```
+
+It also demonstrated correct-answer detection, incorrect-answer detection, corrective explanations, score calculation, time tracking, and final verdict generation. These are assessment capabilities, but one quiz result is not enough to prove educational improvement.
+
+## Before-and-after evidence to collect
+
+| Measurement | Before feedback | After feedback |
+|---|---:|---:|
+| Correct answers | Actual value | Actual value |
+| Confidence | Actual value | Actual value |
+| Repeated mistakes | Actual value | Actual value |
+| Time taken | Actual value | Actual value |
+| Prerequisite completion | Actual result | Actual result |
+| Explanation quality | Observed result | Observed result |
+
+A negative result also counts when it leads to a documented correction. For example, an incorrect quiz response can be used to test whether NEXUS identifies the weak concept, selects a graph-valid prerequisite, provides remediation, and reassesses the learner.
+
+No improvement percentage should be invented without before-and-after evidence.
+
+---
+
+# 18. Criterion 4 — How the Team Worked and Showed It — 10 Marks
+
+The one-day development process followed a focused vertical-slice approach:
+
+```text
+Define workflow
+    ↓
+Implement CLI
+    ↓
+Integrate source retrieval
+    ↓
+Implement spot_agent
+    ↓
+Implement gate_agent
+    ↓
+Protect graph routing
+    ↓
+Implement structured records
+    ↓
+Run positive and negative tests
+    ↓
+Observe user behavior
+    ↓
+Make a focused correction
+    ↓
+Retest and document
+```
+
+The live demonstration should show:
+
+1. Repository structure and main entry point.
+2. State-machine design.
+3. Source document and retrieved evidence.
+4. Question generation.
+5. Confidence and answer submission.
+6. assessment and verdict generation.
+7. Persisted records.
+8. Incorrect or incomplete answer handling.
+9. Backward-pass routing.
+10. One real change made after testing.
+
+reviewer questions should be answered using this format:
+
+```text
+Claim
+    ↓
+Implementation location
+    ↓
+Execution evidence
+    ↓
+Known limitation
+    ↓
+Next improvement
+```
+
+The team should show meaningful commits, prompt changes, bug fixes, test updates, and documentation changes. Commit history must be genuine and must not be manufactured solely for assessment.
+
+---
+
+# 19. One-Day Progress and Failure-Based Learning Report
+
+## 19.1 Start-of-Day Objective
+
+The goal at the beginning of the day was to create a demonstrable NEXUS learning slice that could accept a topic, retrieve academic content, ask a question, collect an answer, evaluate the answer, store learning records, and route the learner based on the result.
+
+The development strategy prioritized a working vertical slice instead of attempting to finish every planned feature simultaneously.
+
+## 19.2 Progress Achieved
+
+During the day, the team:
+
+- Defined the `QUESTIONING`, `checking`, `COMPLETE`, and `BACKWARD_PASS` states.
+- Separated `spot_agent` and `gate_agent` responsibilities.
+- Implemented CLI topic interaction.
+- Connected the workflow to academic PDF content.
+- Displayed source references and grounding explanations.
+- Generated an interactive five-question quiz from a PDF.
+- Tested correct and incorrect answer paths.
+- Added score and time tracking.
+- Generated a final understanding verdict.
+- Identified persistence, routing, external-user, and learning-effectiveness verification gaps.
+
+The internal development estimate is approximately **80% complete**. This is an internal estimate, not a reviewer score or proof that all review requirements have been satisfied.
+
+## 19.3 Failure Finding and Correction 1 — Incorrect Answer
+
+An interactive quiz run contained an incorrect answer. The system marked the response as incorrect, displayed the correct option, and generated a document-grounded explanation.
+
+This proves that the assessment layer can detect and explain an incorrect response. It does not yet prove that the learner understood the explanation or improved afterward.
+
+**Required correction:** connect incorrect-answer handling to concept identification, graph-valid prerequisite selection, remediation, and reassessment.
+
+## 19.4 Failure Finding and Correction 2 — Completion State Is Not Enough
+
+The CLI displayed `Final Agent State: complete`. A final state alone does not prove that every intermediate state executed correctly or that all records and routes were valid.
+
+**Required correction:** capture a trace containing the question, answer, verdict, stored records, and final route.
+
+## 19.5 Failure Finding and Correction 3 — External-User Evidence Gap
+
+The available screenshots show terminal execution, but they do not conclusively establish a walkthrough with someone outside the team.
+
+**Required correction:** conduct a genuine external walkthrough, record the observed problem, implement a focused change, and retest it.
+
+## 19.6 Failure Finding and Correction 4 — Educational Benefit Not Yet Proven
+
+The system produced a score and final verdict for a quiz, but a single score does not establish learning improvement.
+
+**Required correction:** run a before-and-after test and record actual changes in correctness, confidence, repeated mistakes, and prerequisite understanding.
+
+## 19.7 Failure Finding and Correction 5 — Model-Controlled Routing Risk
+
+A language model could potentially output a nonexistent prerequisite identifier.
+
+**Protection:** the application overrides `prerequisite_id` using graph lookup.
+
+**Required negative test:** supply or simulate an invalid prerequisite value and verify that the application replaces it with a valid graph-derived node.
+
+---
+
+# 20. Final Evidence Plan for the checking component
+
+The final repository and demonstration should contain the following evidence package:
+
+| Evidence item | Purpose |
+|---|---|
+| CLI run command | Reproducible execution |
+| Source document | Knowledge grounding |
+| Generated question | `spot_agent` behavior |
+| Student answer and confidence | Learner interaction |
+| `QuestionRecord` | Question persistence |
+| `AnswerRecord` | Answer persistence |
+| `VerdictRecord` | assessment persistence |
+| Successful completion trace | Forward workflow |
+| Incorrect-answer trace | Negative-path behavior |
+| Backward-pass trace | Adaptive routing |
+| Invalid-prerequisite test | Routing safety |
+| External walkthrough record | Real-user evidence |
+| Before-and-after result | Whether it helped |
+| Commit history | Development process |
+| Final demo recording | Reproducibility and communication |
+
+The project should explicitly classify each item as one of the following:
+
+```text
+Implemented and demonstrated
+Implemented but not directly verified
+Planned and not yet completed
+```
+
+This prevents unsupported claims and gives the checking component a clear understanding of the actual development status.
+
+---
+
+# 21. Final Submission Statement
+
+NEXUS has developed a source-grounded, agent-based learning foundation with separate question-generation and assessment responsibilities, interactive quiz execution, correctness feedback, score calculation, time tracking, and a planned graph-controlled adaptive workflow.
+
+The one-day development report demonstrates real implementation progress while identifying the remaining evidence required for a strong assessment: persisted records, a complete agentic trace, backward-pass execution, invalid-routing protection, genuine external-user testing, and measurable before-and-after learning outcomes.
+
+The team should not hide failures. An observed failure followed by a verified design correction is valuable evidence under the review pattern because it demonstrates that the team tested its assumptions and improved the system based on what it learned.
+
+The final objective is not merely to show that NEXUS runs. It is to show:
+
+```text
+The agent works
+    ↓
+People used it
+    ↓
+The team observed what failed
+    ↓
+The design changed
+    ↓
+The result was tested again
+```
+
+
+---
+
+# 23. Final checking component-Ready Submission
+
+## 23.1 Submission Position
+
+NEXUS was developed as an agentic adaptive-learning system that connects academic knowledge, question generation, learner responses, assessment, and progression.
+
+The one-day sprint concentrated on building and demonstrating a usable vertical slice while identifying the evidence required to validate the complete adaptive-learning loop.
+
+The submission presents:
+
+- Implemented functionality.
+- Demonstrated execution evidence.
+- Testing outcomes.
+- External-user validation requirements.
+- Known limitations.
+- Design safeguards.
+- Planned verification work.
+
+All claims in this report should be supported by repository files, terminal recordings, screenshots, logs, or live execution wherever available.
+
+---
+
+## 24. Working Agentic Slice
+
+NEXUS is not designed as a single-prompt question-answering application. Its workflow separates responsibilities across agents and application-controlled logic.
+
+```text
+Topic Selection
+      ↓
+Knowledge Retrieval
+      ↓
+spot_agent
+      ↓
+QUESTIONING
+      ↓
+Confidence + Student Answer
+      ↓
+gate_agent
+      ↓
+checking
+      ↓
+VerdictRecord
+      ↓
+COMPLETE / BACKWARD_PASS
+```
+
+### Implemented Design
+
+The `spot_agent` is responsible for:
+
+- Reading the current topic and difficulty.
+- Considering previous objections.
+- Generating a question through the configured prompt.
+- Collecting learner confidence.
+- Collecting the learner’s answer.
+- Writing question and answer records.
+
+The `gate_agent` is responsible for:
+
+- Reading the latest question.
+- Reading the submitted answer.
+- Considering prior verdict history.
+- checking answer sufficiency.
+- Creating a verdict.
+- Supporting progression decisions.
+
+The application controls prerequisite routing through graph lookup. This is an important safety boundary because the model is not trusted to invent prerequisite identifiers.
+
+### Demonstrated Evidence
+
+The following behavior has been demonstrated:
+
+- CLI topic input.
+- Agent-run initialization.
+- Source-grounded response generation.
+- Source references and grounding explanation.
+- Interactive quiz generation.
+- Correct-answer assessment.
+- Incorrect-answer assessment.
+- Explanation generation.
+- Score and time calculation.
+- Final assessment verdict.
+
+### Completion Evidence Required
+
+For the complete agentic slice, the live demonstration should show:
+
+1. A `QuestionRecord`.
+2. An `AnswerRecord`.
+3. A `VerdictRecord`.
+4. A successful `COMPLETE` route.
+5. An insufficient-answer `BACKWARD_PASS` route.
+6. A graph-selected prerequisite.
+7. Reassessment after remediation.
+8. Protection against invalid prerequisite identifiers.
+
+The final score should be based on the evidence actually demonstrated, not on architectural claims alone.
+
+---
+
+## 25. Real-User Testing and Feedback
+
+### 25.1 External Walkthrough
+
+A friend was identified as the intended external tester for the knowledge-agent and quiz workflows. The test record must be completed using the actual interaction details.
+
+| Field | Record |
+|---|---|
+| Participant | Friend |
+| Test scope | Knowledge agent and interactive quiz |
+| Test date | [Actual date] |
+| Topic tested | [Actual topic] |
+| Task | Use the system and complete a learning interaction |
+| Observed behavior | [Actual observation] |
+| Feedback | [Actual feedback] |
+| Problem identified | [Actual problem] |
+| Change implemented | [Actual change] |
+| Retest result | [Actual result] |
+
+### 25.2 User-Testing Method
+
+The participant should be given a short task without continuous step-by-step guidance.
+
+The team should observe:
+
+- Whether the purpose of the system is clear.
+- Whether the generated question is understandable.
+- Whether the participant understands the confidence input.
+- Whether the assessment explanation is clear.
+- Whether the participant knows what to do after an incorrect answer.
+- Whether the system provides a useful next learning step.
+
+### 25.3 Feedback-to-Change Loop
+
+The strongest evidence is a documented feedback cycle:
+
+```text
+User Interaction
+      ↓
+Observed Confusion or Failure
+      ↓
+User Feedback
+      ↓
+Technical or UX Change
+      ↓
+Retest
+      ↓
+Observed Result
+```
+
+The report must include the participant’s actual feedback and the actual change made. If a change has not yet been implemented, it must be marked as planned rather than completed.
+
+### 25.4 Evidence Integrity
+
+The CLI and quiz screenshots demonstrate actual system execution. They should be used as product evidence.
+
+However, screenshots alone do not prove:
+
+- That the tester was independent of the development team.
+- That a specific improvement resulted from user feedback.
+- That the participant’s learning improved.
+- That every internal state transition executed correctly.
+
+These points require additional records or live demonstration.
+
+---
+
+## 26. Evidence of Learner Benefit
+
+NEXUS is designed to help learners identify weak concepts and receive targeted guidance.
+
+The intended benefit is not limited to displaying a score. The system is intended to connect an incorrect response to:
+
+- A weak concept.
+- A prerequisite topic.
+- A focused explanation.
+- A follow-up question.
+- A measurable change in understanding.
+
+The available quiz execution demonstrated:
+
+```text
+Final Score: 3 / 5 (60.0%)
+Time Taken: 270.9 seconds
+Verdict: PASS (Good Understanding)
+```
+
+The system also demonstrated both correct and incorrect answer handling with document-linked explanations.
+
+### Learning Validation Approach
+
+A stronger learning test should compare the learner’s performance before and after feedback:
+
+| Indicator | Before feedback | After feedback |
+|---|---|---|
+| Correct response | Actual result | Actual result |
+| Confidence | Actual result | Actual result |
+| Repeated error | Actual result | Actual result |
+| Explanation quality | Actual result | Actual result |
+| Follow-up response | Actual result | Actual result |
+| Prerequisite understanding | Actual result | Actual result |
+
+The team should avoid claiming educational improvement from one score. Improvement should be reported only when supported by an actual before-and-after test.
+
+### Intended Adaptive Learning Flow
+
+```text
+Incorrect Answer
+      ↓
+Weak Concept Identification
+      ↓
+Graph-Based Prerequisite Selection
+      ↓
+Focused Remediation
+      ↓
+Follow-up Question
+      ↓
+Reassessment
+```
+
+This flow is the primary mechanism through which NEXUS is intended to provide more value than a static quiz.
+
+---
+
+## 27. Development Process and Demonstration
+
+The one-day sprint followed a focused vertical-slice development process.
+
+```text
+Define Workflow
+      ↓
+Implement CLI
+      ↓
+Integrate Academic Source
+      ↓
+Implement spot_agent
+      ↓
+Implement gate_agent
+      ↓
+Add Structured Records
+      ↓
+Protect Graph Routing
+      ↓
+Run Positive Tests
+      ↓
+Run Negative Tests
+      ↓
+Review Evidence
+      ↓
+Prepare Demonstration
+```
+
+### Development Evidence
+
+The team should present:
+
+- Repository structure.
+- Agent implementation files.
+- Prompt files.
+- Knowledge-source integration.
+- CLI commands.
+- Terminal output.
+- Test cases.
+- Bug fixes.
+- Commit history.
+- Stored records.
+- Final demonstration steps.
+
+### Demonstration Sequence
+
+1. Explain the learner problem.
+2. Show the agent architecture.
+3. Run the CLI.
+4. Select a topic.
+5. Show retrieved source evidence.
+6. Display the generated question.
+7. Submit confidence and an answer.
+8. Run assessment.
+9. Display the verdict.
+10. Show stored records.
+11. Submit an incomplete answer.
+12. Demonstrate backward routing.
+13. Show graph-controlled prerequisite selection.
+14. Explain one actual feedback-driven change.
+15. Retest the workflow.
+
+The team should demonstrate the real system and avoid presenting planned features as completed functionality.
+
+---
+
+## 28. Positive, Negative, and Hardening Validation
+
+### Positive Tests
+
+Positive tests verify that the expected workflow succeeds.
+
+Examples:
+
+- Valid topic input.
+- Valid academic PDF.
+- Successful question generation.
+- Correct answer submission.
+- Successful quiz completion.
+- Valid graph prerequisite.
+- Successful record persistence.
+
+### Negative Tests
+
+Negative tests verify that the system responds safely to incorrect or incomplete inputs.
+
+Examples:
+
+- Incorrect quiz answer.
+- Incomplete learner answer.
+- Invalid topic identifier.
+- Missing source document.
+- Empty answer.
+- Invalid confidence value.
+- Invalid prerequisite identifier.
+- Unexpected model response.
+
+### Hardening Tests
+
+Hardening tests examine how the system behaves under unusual conditions.
+
+Examples:
+
+- Model response does not match the expected format.
+- Source document contains insufficient information.
+- The model suggests a nonexistent prerequisite.
+- A required record is missing.
+- The checking component returns an incomplete verdict.
+- The user submits unexpected input.
+- The knowledge source cannot be accessed.
+- The model API or local model fails.
+
+The application should fail safely, display a useful error, preserve the state where possible, and prevent invalid routing.
+
+---
+
+## 29. Technical Risk Controls
+
+### Model Hallucination
+
+The system reduces hallucinated learning routes by controlling prerequisite selection through application-level graph lookup.
+
+### Invalid Model Output
+
+Fallback handling is used to reduce the risk of the state machine stopping because of an unexpected model response.
+
+### Source Grounding
+
+The knowledge workflow displays source references and grounding explanations so that generated content can be traced to the academic material.
+
+### Separation of Responsibilities
+
+Question generation and answer assessment are handled by separate agents. This allows each prompt and responsibility to be tested independently.
+
+### Persistence Traceability
+
+Structured records provide a foundation for connecting questions, answers, verdicts, and future learning decisions.
+
+These controls should be verified through direct tests and logs before being described as fully reliable.
+
+---
+
+## 30. Final assessment Readiness Summary
+
+| Evidence area | Current position | Final proof required |
+|---|---|---|
+| Agentic workflow | Architecture and CLI demonstrated | Full question-to-verdict trace |
+| Knowledge grounding | Source references and explanations demonstrated | Repeatable source verification |
+| Interactive assessment | Quiz generation and assessment demonstrated | Additional edge-case testing |
+| Correct answers | Demonstrated | More positive test cases |
+| Incorrect answers | Demonstrated | Backward-pass verification |
+| Structured records | Designed and claimed in implementation | Direct storage inspection |
+| Graph routing | Application control described | Invalid-node negative test |
+| External user testing | Friend identified as intended tester | Actual walkthrough record |
+| User feedback | Must be recorded from real interaction | Feedback evidence |
+| Design improvement | Must be linked to observed feedback | Before-and-after retest |
+| Learning benefit | Intended benefit defined | Actual repeated-attempt measurement |
+| Demonstration | CLI and quiz evidence available | Complete live end-to-end run |
+
+---
+
+## 31. Final Submission Statement
+
+NEXUS uses a combination of knowledge-source grounding, agent-based questioning, answer assessment, structured learner records, and graph-controlled progression to support adaptive learning.
+
+The one-day development sprint produced a working foundation and demonstrated meaningful assessment behavior through CLI and interactive quiz executions.
+
+The project’s strongest technical elements are:
+
+- Separation of question generation and assessment.
+- Source-grounded academic responses.
+- Structured learning records.
+- Application-controlled prerequisite routing.
+- Correct and incorrect answer handling.
+- Explicit testing and failure-analysis planning.
+
+The final demonstration should focus on proving the complete learning loop with direct evidence. The team should show not only that the system can generate and evaluate questions, but also how it responds to learner weakness, selects a valid prerequisite, stores the interaction, and reassesses the learner.
+
+A high-quality submission should be reviewerd by the strength and verifiability of its evidence. The team should therefore distinguish clearly between:
+
+```text
+Implemented and demonstrated
+        ↓
+Implemented but not directly verified
+        ↓
+Planned for completion
+```
+
+This report presents the one-day progress, testing evidence, validation approach, limitations, and final demonstration requirements in a form suitable for repository review and live assessment.
+
+## Friend Feedback and User Experience
+
+### Test participant
+
+- Participant: Friend / external tester
+- Features tested: Knowledge Agent and Interactive Quiz
+- Test method: The participant ran the available workflows and observed the generated questions, answer processing, source references, quiz results, and final status.
+
+### Feedback record
+
+Only observations that were actually received should be recorded as direct quotations. No direct quotation or personal opinion is added here because the tester's exact words were not provided in the available evidence.
+
+Use the following format after collecting the friend's real comments:
+
+| Area | Friend's exact feedback | Developer response |
+|---|---|---|
+| Ease of use | `[Insert the friend's exact words]` | `[Record the improvement or confirmation]` |
+| Question quality | `[Insert the friend's exact words]` | `[Record the improvement or confirmation]` |
+| Answer checking | `[Insert the friend's exact words]` | `[Record the improvement or confirmation]` |
+| Quiz experience | `[Insert the friend's exact words]` | `[Record the improvement or confirmation]` |
+| Confusing behavior or errors | `[Insert the friend's exact words]` | `[Record the fix, limitation, or follow-up]` |
+
+### Observed user-facing behavior
+
+- The knowledge workflow displayed a question and reached the final state `complete`.
+- The quiz workflow generated five questions, accepted user responses, displayed explanations, and produced a final score of `3 / 5 (60.0%)`.
+- The quiz output displayed the participant name, time taken, score, and final status.
+- Incorrect responses were shown with the expected answer and an explanation, providing a clear basis for the learner to revisit the concept.
+
+> **Evidence boundary:** The observations above are based on recorded execution output. They are not presented as direct statements from the friend. The friend's exact positive and negative comments must be inserted from the actual conversation or feedback form.
+
