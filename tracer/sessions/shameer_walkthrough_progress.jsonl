@@ -1,0 +1,11 @@
+{"kind": "question", "topic_id": "binary_trees", "topic_label": "Binary Trees", "content": "Explain the core idea behind Binary Trees in your own words.", "difficulty_level": 1}
+{"kind": "answer", "topic_id": "binary_trees", "student_response": "binary trees are node structures with left and right child", "confidence_rating": 3}
+{"kind": "verdict", "topic_id": "binary_trees", "status": "BLOCK", "objections": ["The answer lacks a clear explanation of the core idea behind Binary Trees.", "It does not explain the root node or how left and right child relationships form subtrees."], "prerequisite_id": "recursion"}
+{"kind": "callback_response", "topic_id": "binary_trees", "decision": "STEP_BACK"}
+{"kind": "question", "topic_id": "recursion", "topic_label": "Recursion", "content": "What does it mean for a function to call itself, and what role does the base case play?", "difficulty_level": 1}
+{"kind": "answer", "topic_id": "recursion", "student_response": "A recursive function calls itself with a smaller input until it hits a base case that stops the loop.", "confidence_rating": 4}
+{"kind": "verdict", "topic_id": "recursion", "status": "PASS", "objections": [], "prerequisite_id": null}
+{"kind": "question", "topic_id": "binary_trees", "topic_label": "Binary Trees", "content": "What is the purpose of the root node in a Binary Tree, and how does it differ from left and right child nodes?", "difficulty_level": 2}
+{"kind": "answer", "topic_id": "binary_trees", "student_response": "The root is the topmost node with no parent. Left and right children are sub-roots of their own subtrees.", "confidence_rating": 4}
+{"kind": "verdict", "topic_id": "binary_trees", "status": "PASS", "objections": [], "prerequisite_id": null}
+{"kind": "session_summary", "root_topic_id": "binary_trees", "final_pass_topic_id": "binary_trees", "depth_reached": 1, "topics_verified": ["binary_trees", "recursion"], "timed_out": false}

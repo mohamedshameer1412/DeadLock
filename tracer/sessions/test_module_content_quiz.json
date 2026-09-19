@@ -1,0 +1,50 @@
+{
+  "title": "Quiz on untitled",
+  "source_file": "untitled",
+  "total_questions": 3,
+  "created_at": "2026-09-19T16:07:26.555384",
+  "questions": [
+    {
+      "question_number": 1,
+      "question_text": "According to the material, what AI Generated Module - Sample Content\nThis?",
+      "options": {
+        "A": "a sample document for testing module creation",
+        "B": "It exclusively contradicts standard Generated procedures.",
+        "C": "It bypasses all Generated safeguards and requirements.",
+        "D": "It is strictly prohibited under conventional Generated conventions."
+      },
+      "correct_answer": "A",
+      "explanation": "Based on the text: \"AI Generated Module - Sample Content\nThis is a sample document for testing module creation.\"",
+      "difficulty": 1,
+      "concept_tag": "untitled"
+    },
+    {
+      "question_number": 2,
+      "question_text": "Which statement regarding 'untitled' is supported by the text?",
+      "options": {
+        "A": "It exclusively contradicts standard Sample procedures.",
+        "B": "AI Generated Module - Sample Content",
+        "C": "It bypasses all Content safeguards and requirements.",
+        "D": "It is strictly prohibited under conventional Neural conventions."
+      },
+      "correct_answer": "B",
+      "explanation": "Based on the text: \"AI Generated Module - Sample Content\"",
+      "difficulty": 2,
+      "concept_tag": "untitled"
+    },
+    {
+      "question_number": 3,
+      "question_text": "According to the material, what This?",
+      "options": {
+        "A": "It bypasses all Networks safeguards and requirements.",
+        "B": "It exclusively contradicts standard This procedures.",
+        "C": "a sample document for testing module creation",
+        "D": "It is strictly prohibited under conventional Layer conventions."
+      },
+      "correct_answer": "C",
+      "explanation": "Based on the text: \"This is a sample document for testing module creation.\"",
+      "difficulty": 3,
+      "concept_tag": "untitled"
+    }
+  ]
+}

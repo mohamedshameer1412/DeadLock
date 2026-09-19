@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeadLock - AI PDF Quiz Generator</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    .option-card {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .option-card:hover:not(.locked) {
+      transform: translateY(-2px);
+      border-color: #4f46e5;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased min-h-screen p-4 md:p-8 flex justify-center items-start">
+  
+  <div class="w-full max-w-3xl space-y-6">
+
+    <!-- Header / Branding -->
+    <header class="flex items-center justify-between border-b border-slate-200 pb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-xl shadow-md">
+          D
+        </div>
+        <div>
+          <h1 class="text-xl font-bold text-slate-900 tracking-tight">DeadLock Quiz Studio</h1>
+          <p class="text-xs text-slate-500">Connected to Python Backend Engine (`tracer.quiz_generator`)</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="backend-status-badge" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700 border border-emerald-300">
+          ● Backend Ready
+        </span>
+      </div>
+    </header>
+
+    <!-- STEP 1: UPLOAD & CONFIGURE SCREEN -->
+    <section id="screen-upload" class="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+      <div>
+        <h2 class="text-lg font-semibold text-slate-900">1. Upload Your Learning Material</h2>
+        <p class="text-sm text-slate-500">Upload any PDF file. The Python backend will extract its text and formulate a quiz tailored to the material.</p>
+      </div>
+
+      <!-- Drag and drop box -->
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl p-8 text-center cursor-pointer transition-colors bg-slate-50/50 group">
+        <input type="file" id="file-input" accept=".pdf" class="hidden" onchange="handleFileSelect(event)">
+        <div class="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+        </div>
+        <p class="text-sm font-medium text-slate-900">Click to browse or drop your PDF document here</p>
+        <p class="text-xs text-slate-500 mt-1">Accepts any lecture, research paper, syllabus, or notes in PDF format</p>
+      </div>
+
+      <!-- Quick sample selector (loaded dynamically from backend or fallback) -->
+      <div class="space-y-2">
+        <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Or select sample material from repository:</span>
+        <div id="sample-buttons-container" class="flex flex-wrap gap-2">
+          <button onclick="selectSample('test_module_content.pdf', 'Neural Networks Sample Module', 'ai_learnmate/backend/test_module_content.pdf')" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white hover:border-indigo-500 text-slate-700 flex items-center gap-1.5 transition-colors">
+            📄 test_module_content.pdf <span class="text-slate-400">(Sample ML)</span>
+          </button>
+          <button onclick="selectSample('Neural_Networks_Overview.pdf', 'Neural Networks Overview', 'ai_learnmate/backend/media/learning_modules/pdfs/Neural_Networks_Overview.pdf')" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white hover:border-indigo-500 text-slate-700 flex items-center gap-1.5 transition-colors">
+            📄 Neural_Networks_Overview.pdf <span class="text-slate-400">(Full Guide)</span>
+          </button>
+          <button onclick="selectSample('english_quiz_test.pdf', 'General English Quiz', 'ai_learnmate/english_quiz_test.pdf')" class="px-3 py-1.5 text-xs rounded-lg border border-slate-200 bg-white hover:border-indigo-500 text-slate-700 flex items-center gap-1.5 transition-colors">
+            📄 english_quiz_test.pdf <span class="text-slate-400">(Test Doc)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- File info pill (hidden initially) -->
+      <div id="file-info-card" class="hidden p-4 rounded-xl bg-indigo-50/50 border border-indigo-200 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">PDF</div>
+          <div>
+            <p id="selected-filename" class="text-sm font-medium text-slate-900">selected_document.pdf</p>
+            <p id="selected-filemeta" class="text-xs text-slate-500">Ready for backend extraction</p>
+          </div>
+        </div>
+        <button onclick="clearSelectedFile()" class="text-xs text-red-500 hover:text-red-700 font-medium">Change File</button>
+      </div>
+
+      <!-- STEP 2: USER CONFIGURES QUESTION COUNT -->
+      <div class="border-t border-slate-200 pt-6 space-y-5">
+        <div>
+          <h3 class="text-base font-semibold text-slate-900">2. Configure Quiz Specifications</h3>
+          <p class="text-xs text-slate-500">Specify exactly how many questions the Python backend should generate from this PDF.</p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Question count picker -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+            <div class="flex justify-between items-center">
+              <label class="text-sm font-medium text-slate-900">Number of Questions:</label>
+              <span id="question-count-badge" class="px-2.5 py-0.5 rounded-full text-sm font-bold bg-indigo-600 text-white">5</span>
+            </div>
+            <input type="range" id="question-slider" min="1" max="15" value="5" oninput="updateQuestionCount(this.value)" class="w-full accent-indigo-600 cursor-pointer">
+            <div class="flex justify-between text-[10px] text-slate-500 font-medium">
+              <span>1 Question</span>
+              <span>5 Questions</span>
+              <span>10 Questions</span>
+              <span>15 Questions</span>
+            </div>
+          </div>
+
+          <!-- Difficulty setting -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+            <label class="text-sm font-medium text-slate-900">Target Difficulty:</label>
+            <select id="difficulty-select" class="w-full text-xs rounded-lg border border-slate-300 bg-white text-slate-900 p-2 focus:ring-1 focus:ring-indigo-500 outline-none">
+              <option value="adaptive">Adaptive Progression (Level 1 &rarr; Level 3)</option>
+              <option value="l1">Foundational Recall (Level 1)</option>
+              <option value="l2">Conceptual Application (Level 2)</option>
+              <option value="l3">Deep Diagnostic Analysis (Level 3)</option>
+            </select>
+            <p class="text-[10px] text-slate-500">Parsed by Python engine into validated options and citations.</p>
+          </div>
+        </div>
+
+        <!-- Candidate name -->
+        <div class="flex items-center gap-3">
+          <label class="text-xs text-slate-500 whitespace-nowrap">Student Name:</label>
+          <input type="text" id="candidate-name" value="Mohamed Shameer" placeholder="Your name" class="w-full max-w-xs text-xs px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-900">
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <div class="pt-2">
+        <button id="btn-generate" onclick="startGeneration()" class="w-full py-3.5 px-6 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2">
+          <span>Generate Quiz from Material</span>
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 2: GENERATION LOADING SCREEN -->
+    <section id="screen-loading" class="hidden bg-white border border-slate-200 rounded-2xl p-10 shadow-sm text-center space-y-6">
+      <div class="w-16 h-16 mx-auto rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 animate-bounce">
+        <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+      </div>
+      <div>
+        <h3 class="text-lg font-bold text-slate-900">Processing Uploaded PDF on Backend</h3>
+        <p id="loading-stage-text" class="text-xs text-slate-500 mt-1">Sending file to Python FastAPI backend (`tracer.quiz_generator`)...</p>
+      </div>
+      <div class="w-full bg-slate-200 h-2 rounded-full overflow-hidden relative">
+        <div id="progress-bar-fill" class="h-full bg-indigo-600 rounded-full transition-all duration-300" style="width: 30%"></div>
+      </div>
+      <div class="grid grid-cols-3 gap-2 text-left text-xs text-slate-500 pt-2">
+        <div id="step-pill-1" class="p-2 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-800 font-medium">1. pypdf Text Extraction</div>
+        <div id="step-pill-2" class="p-2 rounded-lg border border-slate-200">2. Semantic Chunking</div>
+        <div id="step-pill-3" class="p-2 rounded-lg border border-slate-200">3. Quiz Synthesis</div>
+      </div>
+    </section>
+
+    <!-- STEP 3: INTERACTIVE QUIZ PLAYER SCREEN -->
+    <section id="screen-quiz" class="hidden bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-6">
+      <!-- Quiz Progress Header -->
+      <div class="flex items-center justify-between border-b border-slate-200 pb-4">
+        <div>
+          <span id="quiz-source-title" class="text-xs font-semibold uppercase tracking-wider text-indigo-600">Material Quiz</span>
+          <h2 id="quiz-progress-text" class="text-base font-bold text-slate-900">Question 1 of 5</h2>
+        </div>
+        <div class="text-right">
+          <span class="text-xs text-slate-500">Current Score</span>
+          <p id="current-score-text" class="text-base font-bold text-emerald-600">0 Correct</p>
+        </div>
+      </div>
+
+      <!-- Question Card -->
+      <div class="space-y-4">
+        <div class="flex items-center gap-2">
+          <span id="question-difficulty-badge" class="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-100 text-amber-800 border border-amber-300">
+            Level 1 • Recall
+          </span>
+          <span id="question-concept-badge" class="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 border border-slate-200">
+            #Concept
+          </span>
+        </div>
+
+        <p id="active-question-text" class="text-base font-medium text-slate-900 leading-relaxed">
+          Question text loading...
+        </p>
+
+        <!-- Options A, B, C, D -->
+        <div id="options-container" class="space-y-2.5 pt-2">
+          <!-- Dynamically inserted from Python backend -->
+        </div>
+
+        <!-- Feedback & Explanation Box -->
+        <div id="explanation-card" class="hidden p-4 rounded-xl border transition-all text-xs space-y-1">
+          <p id="feedback-headline" class="font-bold text-sm">Correct!</p>
+          <p id="explanation-text" class="text-slate-600 leading-relaxed"></p>
+        </div>
+      </div>
+
+      <!-- Navigation buttons -->
+      <div class="flex items-center justify-between pt-4 border-t border-slate-200">
+        <button onclick="abandonQuiz()" class="text-xs text-slate-500 hover:text-red-500 transition-colors">Quit to Menu</button>
+        <button id="btn-next-question" onclick="nextQuestion()" class="hidden px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-colors flex items-center gap-1.5">
+          <span>Next Question</span>
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 4: RESULTS DASHBOARD SCREEN -->
+    <section id="screen-results" class="hidden bg-white border border-slate-200 rounded-2xl p-8 shadow-sm text-center space-y-6">
+      <div class="w-20 h-20 mx-auto rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-extrabold text-2xl border-4 border-emerald-200">
+        <span id="final-percentage">80%</span>
+      </div>
+
+      <div>
+        <h2 class="text-2xl font-bold text-slate-900">Quiz Completed!</h2>
+        <p id="final-score-details" class="text-sm text-slate-500 mt-1">You answered 4 out of 5 questions correctly.</p>
+        <span id="verdict-pill" class="inline-block mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          Mastery Demonstrated
+        </span>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex flex-wrap justify-center gap-3 pt-4">
+        <button onclick="downloadJSON()" class="px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:border-indigo-500 text-xs font-medium text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+          Export Quiz JSON
+        </button>
+        <button onclick="downloadMarkdown()" class="px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:border-indigo-500 text-xs font-medium text-slate-800 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+          Export Markdown Sheet
+        </button>
+        <button onclick="resetApp()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors">
+          Upload Another Document
+        </button>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    // State
+    let uploadedFileObject = null;
+    let selectedSample = {
+      name: "test_module_content.pdf",
+      title: "Neural Networks Sample Module",
+      rel_path: "ai_learnmate/backend/test_module_content.pdf"
+    };
+
+    let requestedQuestions = 5;
+    let activeQuiz = null;
+    let currentQuestionIndex = 0;
+    let score = 0;
+
+    function updateQuestionCount(val) {
+      requestedQuestions = parseInt(val);
+      document.getElementById('question-count-badge').innerText = val;
+    }
+
+    function selectSample(filename, title, relPath) {
+      uploadedFileObject = null;
+      selectedSample = { name: filename, title: title, rel_path: relPath };
+      document.getElementById('selected-filename').innerText = filename;
+      document.getElementById('selected-filemeta').innerText = `${title} • Ready for Python extraction`;
+      document.getElementById('file-info-card').classList.remove('hidden');
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        uploadedFileObject = file;
+        selectedSample = null;
+        document.getElementById('selected-filename').innerText = file.name;
+        document.getElementById('selected-filemeta').innerText = `${(file.size / 1024).toFixed(1)} KB • User Uploaded Document`;
+        document.getElementById('file-info-card').classList.remove('hidden');
+      }
+    }
+
+    function clearSelectedFile() {
+      uploadedFileObject = null;
+      selectedSample = null;
+      document.getElementById('file-input').value = "";
+      document.getElementById('file-info-card').classList.add('hidden');
+    }
+
+    // Connect to Python Backend Endpoint
+    async function startGeneration() {
+      const numQuestions = requestedQuestions;
+      
+      // Transition to loading screen
+      document.getElementById('screen-upload').classList.add('hidden');
+      document.getElementById('screen-loading').classList.remove('hidden');
+
+      const bar = document.getElementById('progress-bar-fill');
+      const stageText = document.getElementById('loading-stage-text');
+
+      bar.style.width = '30%';
+      stageText.innerText = "Extracting text from PDF with Python pypdf...";
+      document.getElementById('step-pill-1').classList.add('bg-indigo-50', 'border-indigo-200', 'text-indigo-800', 'font-medium');
+
+      try {
+        const formData = new FormData();
+        formData.append("num_questions", numQuestions);
+        formData.append("difficulty", document.getElementById('difficulty-select').value);
+
+        if (uploadedFileObject) {
+          formData.append("file", uploadedFileObject);
+          stageText.innerText = `Uploading '${uploadedFileObject.name}' to Python backend...`;
+        } else if (selectedSample && selectedSample.rel_path) {
+          formData.append("sample_rel_path", selectedSample.rel_path);
+          stageText.innerText = `Loading repository document '${selectedSample.name}' in Python...`;
+        } else {
+          formData.append("sample_rel_path", "ai_learnmate/backend/test_module_content.pdf");
+        }
+
+        bar.style.width = '60%';
+        document.getElementById('step-pill-2').classList.add('bg-indigo-50', 'border-indigo-200', 'text-indigo-800', 'font-medium');
+
+        // Post to FastAPI backend
+        const response = await fetch("/api/generate-quiz", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`Server returned status ${response.status}: ${errText}`);
+        }
+
+        bar.style.width = '85%';
+        stageText.innerText = `Synthesizing ${numQuestions} questions using Python engine...`;
+        document.getElementById('step-pill-3').classList.add('bg-indigo-50', 'border-indigo-200', 'text-indigo-800', 'font-medium');
+
+        const quizData = await response.json();
+        
+        bar.style.width = '100%';
+        stageText.innerText = `Done! Generated ${quizData.total_questions} questions from ${quizData.source_file}`;
+
+        setTimeout(() => {
+          launchQuizWithData(quizData);
+        }, 400);
+
+      } catch (err) {
+        console.error("Backend error:", err);
+        alert(`Failed to connect to Python backend:\n${err.message}\n\nPlease ensure the server is running:\npython web/server.py`);
+        resetApp();
+      }
+    }
+
+    function launchQuizWithData(quizData) {
+      activeQuiz = quizData;
+      currentQuestionIndex = 0;
+      score = 0;
+
+      document.getElementById('screen-loading').classList.add('hidden');
+      document.getElementById('screen-quiz').classList.remove('hidden');
+      document.getElementById('quiz-source-title').innerText = quizData.title || quizData.source_file;
+
+      renderCurrentQuestion();
+    }
+
+    function renderCurrentQuestion() {
+      const q = activeQuiz.questions[currentQuestionIndex];
+      const total = activeQuiz.questions.length;
+
+      document.getElementById('quiz-progress-text').innerText = `Question ${currentQuestionIndex + 1} of ${total}`;
+      document.getElementById('current-score-text').innerText = `${score} Correct`;
+      
+      const diffLabel = q.difficulty === 1 ? "Level 1 • Recall" : (q.difficulty === 2 ? "Level 2 • Application" : "Level 3 • Diagnostic");
+      document.getElementById('question-difficulty-badge').innerText = diffLabel;
+      document.getElementById('question-concept-badge').innerText = `#${q.concept_tag || 'Material'}`;
+      document.getElementById('active-question-text').innerText = q.question_text;
+
+      // Render options
+      const container = document.getElementById('options-container');
+      container.innerHTML = "";
+
+      for (let key of ["A", "B", "C", "D"]) {
+        const optText = q.options[key] || q.options[key.toLowerCase()] || `Option ${key}`;
+        const btn = document.createElement('div');
+        btn.className = "option-card p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-white cursor-pointer flex items-start gap-3 text-xs";
+        btn.id = `opt-${key}`;
+        btn.onclick = () => selectAnswer(key);
+
+        btn.innerHTML = `
+          <span class="w-6 h-6 rounded-lg bg-white border border-slate-200 font-bold flex items-center justify-center shrink-0 text-xs">${key}</span>
+          <span class="pt-0.5 text-slate-800">${optText}</span>
+        `;
+        container.appendChild(btn);
+      }
+
+      document.getElementById('explanation-card').classList.add('hidden');
+      document.getElementById('btn-next-question').classList.add('hidden');
+    }
+
+    function selectAnswer(selectedKey) {
+      const q = activeQuiz.questions[currentQuestionIndex];
+      const correctKey = (q.correct_answer || "A").toUpperCase();
+      const isCorrect = (selectedKey === correctKey);
+
+      if (isCorrect) {
+        score++;
+      }
+
+      // Lock all options
+      for (let key of ["A", "B", "C", "D"]) {
+        const el = document.getElementById(`opt-${key}`);
+        if (!el) continue;
+        el.onclick = null;
+        el.classList.add('locked', 'cursor-default');
+
+        if (key === correctKey) {
+          el.className = "p-3.5 rounded-xl border-2 border-emerald-500 bg-emerald-50/60 flex items-start gap-3 text-xs";
+          el.querySelector('span').className = "w-6 h-6 rounded-lg bg-emerald-600 text-white font-bold flex items-center justify-center shrink-0 text-xs";
+        } else if (key === selectedKey && !isCorrect) {
+          el.className = "p-3.5 rounded-xl border-2 border-red-500 bg-red-50/60 flex items-start gap-3 text-xs";
+          el.querySelector('span').className = "w-6 h-6 rounded-lg bg-red-600 text-white font-bold flex items-center justify-center shrink-0 text-xs";
+        } else {
+          el.classList.add('opacity-40');
+        }
+      }
+
+      // Show explanation
+      const expCard = document.getElementById('explanation-card');
+      const headline = document.getElementById('feedback-headline');
+      const text = document.getElementById('explanation-text');
+
+      if (isCorrect) {
+        expCard.className = "p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-xs space-y-1 block";
+        headline.className = "font-bold text-sm text-emerald-700";
+        headline.innerText = "✓ Correct Answer!";
+      } else {
+        expCard.className = "p-4 rounded-xl border border-red-200 bg-red-50 text-xs space-y-1 block";
+        headline.className = "font-bold text-sm text-red-700";
+        headline.innerText = `✗ Incorrect — Correct option is (${correctKey})`;
+      }
+
+      text.innerText = q.explanation || "Extracted directly from source material.";
+      document.getElementById('current-score-text').innerText = `${score} Correct`;
+      document.getElementById('btn-next-question').classList.remove('hidden');
+
+      const isLast = (currentQuestionIndex === activeQuiz.questions.length - 1);
+      document.getElementById('btn-next-question').querySelector('span').innerText = isLast ? "Finish Quiz" : "Next Question";
+    }
+
+    function nextQuestion() {
+      if (currentQuestionIndex < activeQuiz.questions.length - 1) {
+        currentQuestionIndex++;
+        renderCurrentQuestion();
+      } else {
+        showResults();
+      }
+    }
+
+    function showResults() {
+      document.getElementById('screen-quiz').classList.add('hidden');
+      document.getElementById('screen-results').classList.remove('hidden');
+
+      const total = activeQuiz.questions.length;
+      const pct = Math.round((score / total) * 100);
+
+      document.getElementById('final-percentage').innerText = pct + "%";
+      document.getElementById('final-score-details').innerText = `You answered ${score} out of ${total} questions correctly.`;
+
+      const pill = document.getElementById('verdict-pill');
+      if (pct >= 80) {
+        pill.innerText = "Mastery Demonstrated (Pass)";
+        pill.className = "inline-block mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300";
+      } else if (pct >= 60) {
+        pill.innerText = "Proficient Understanding";
+        pill.className = "inline-block mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300";
+      } else {
+        pill.innerText = "Prerequisite Review Recommended";
+        pill.className = "inline-block mt-3 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-300";
+      }
+    }
+
+    function downloadJSON() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(activeQuiz, null, 2));
+      const a = document.createElement('a');
+      a.setAttribute("href", dataStr);
+      a.setAttribute("download", `${(activeQuiz.source_file || 'quiz').replace('.pdf','')}_quiz.json`);
+      a.click();
+    }
+
+    function downloadMarkdown() {
+      let md = `# Quiz on ${activeQuiz.title || activeQuiz.source_file}\n\n`;
+      activeQuiz.questions.forEach((q, idx) => {
+        md += `### Q${idx+1}. ${q.question_text}\n`;
+        md += `- (A) ${q.options.A}\n- (B) ${q.options.B}\n- (C) ${q.options.C}\n- (D) ${q.options.D}\n\n`;
+        md += `**Answer:** (${q.correct_answer})\n*Explanation:* ${q.explanation}\n\n---\n\n`;
+      });
+      const dataStr = "data:text/markdown;charset=utf-8," + encodeURIComponent(md);
+      const a = document.createElement('a');
+      a.setAttribute("href", dataStr);
+      a.setAttribute("download", `${(activeQuiz.source_file || 'quiz').replace('.pdf','')}_review.md`);
+      a.click();
+    }
+
+    function abandonQuiz() {
+      if (confirm("Are you sure you want to exit the quiz?")) {
+        resetApp();
+      }
+    }
+
+    function resetApp() {
+      document.getElementById('screen-results').classList.add('hidden');
+      document.getElementById('screen-quiz').classList.add('hidden');
+      document.getElementById('screen-loading').classList.add('hidden');
+      document.getElementById('screen-upload').classList.remove('hidden');
+    }
+  </script>
+</body>
+</html>

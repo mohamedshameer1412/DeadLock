@@ -1,0 +1,5 @@
+{"kind": "question", "topic_id": "binary_trees", "topic_label": "Binary Trees", "content": "Explain the core idea behind Binary Trees in your own words.", "difficulty_level": 1}
+{"kind": "answer", "topic_id": "binary_trees", "student_response": "The root is the topmost node; left and right children are subtrees.", "confidence_rating": 4}
+{"kind": "verdict", "topic_id": "binary_trees", "status": "PASS", "objections": [], "prerequisite_id": null}
+{"kind": "session_summary", "root_topic_id": "binary_trees", "final_pass_topic_id": "binary_trees", "depth_reached": 0, "topics_verified": ["binary_trees"], "timed_out": false}
+{"kind": "session_summary", "root_topic_id": "binary_trees", "final_pass_topic_id": "binary_trees", "depth_reached": 0, "topics_verified": ["binary_trees"], "timed_out": false}
