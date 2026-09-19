@@ -1367,7 +1367,7 @@ The final demonstration must show intermediate work, not only the final `complet
 
 ---
 
-# 16. Criterion 2 — Evidence That Real People Used It — 35 Marks
+# 16. Evidence That Real People Used It 
 
 The project must include a walkthrough with at least one person outside the development team. Developer-only execution should be labeled as developer testing and should not be presented as independent-user evidence.
 
