@@ -62,14 +62,22 @@ def get(path, token, body=None, timeout=45):
 print("\nagentic-slice-kit doctor\n" + "-" * 60)
 
 # 1 --------------------------------------------------------------------------
-if not load_env():
-    line(BAD, ".env not found", "Run:  cp .env.example .env   then paste your key.")
-    sys.exit(1)
+have_env = load_env()
+provider = os.environ.get("LLM_PROVIDER", "openrouter").strip().lower()
 key = os.environ.get("OPENROUTER_API_KEY", "").strip()
-line(OK, ".env loaded")
-if not key:
+if have_env:
+    line(OK, ".env loaded")
+elif provider == "openrouter":
+    line(BAD, ".env not found",
+         "Run:  cp .env.example .env   then paste your key.\n"
+         "         No key? LLM_PROVIDER=ollama runs a local model; LLM_PROVIDER=fixture needs nothing.")
+else:
+    line(WARN, ".env not found - using environment variables and defaults")
+if provider == "openrouter" and have_env and not key:
     line(BAD, "OPENROUTER_API_KEY is empty",
          "Paste the key from the registration desk into .env, then rerun.")
+elif provider != "openrouter" and not key:
+    line(SKIP, f"OPENROUTER_API_KEY - not needed for LLM_PROVIDER={provider}")
 
 # 2 --------------------------------------------------------------------------
 if not key:
@@ -91,7 +99,11 @@ else:
         line(OK, f"key works - ${float(used or 0):.3f} used, no cap set")
 
 # 3 --------------------------------------------------------------------------
-for var in ("SLICE_MODEL", "SLICE_FALLBACK_MODEL", "SLICE_ESCALATION_MODEL"):
+models_to_check = (("SLICE_MODEL", "SLICE_FALLBACK_MODEL", "SLICE_ESCALATION_MODEL")
+                   if (provider == "openrouter" or key) else ())
+if not models_to_check:
+    line(SKIP, f"cloud model reachability - not needed for LLM_PROVIDER={provider}")
+for var in models_to_check:
     mid = os.environ.get(var, "").strip()
     if not mid:
         line(WARN, f"{var} not set"); continue
@@ -113,6 +125,46 @@ for var in ("SLICE_MODEL", "SLICE_FALLBACK_MODEL", "SLICE_ESCALATION_MODEL"):
              "Your cap cannot cover this request. Lower SLICE_MAX_TOKENS or top up.")
     else:
         line(BAD, f"{var}={mid} unreachable (HTTP {st})", json.dumps(body)[:160])
+
+# 3b -------------------------------------------------------------------------
+# Ollama is REQUIRED when LLM_PROVIDER=ollama and merely reported otherwise, so a
+# machine with no key and no local model still gets a clean "fixture only" verdict.
+line(OK, f"LLM_PROVIDER={provider}")
+if provider not in ("openrouter", "ollama", "fixture"):
+    line(BAD, f"LLM_PROVIDER={provider!r} is not recognised",
+         "Valid values: openrouter, ollama, fixture.")
+ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").strip()
+ollama_model = os.environ.get("OLLAMA_MODEL", "llama3.1:latest").strip()
+ollama_fallback = os.environ.get("OLLAMA_FALLBACK_MODEL", "").strip()
+need_ollama = provider == "ollama"
+try:
+    req = urllib.request.Request(f"{ollama_url}/api/tags", headers={"Accept": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        models = [m["name"] for m in json.load(r).get("models", [])]
+except (urllib.error.URLError, OSError, ValueError) as e:
+    import shutil
+    installed = "installed" if shutil.which("ollama") else "not installed"
+    if need_ollama:
+        line(BAD, f"Cannot reach Ollama at {ollama_url} (binary {installed})",
+             "Start it:  ollama serve   (or install from https://ollama.com)")
+    else:
+        line(SKIP, f"Ollama not running (binary {installed}) - only needed for LLM_PROVIDER=ollama")
+else:
+    pulled = ", ".join(models[:6]) or "none"
+    if not need_ollama:
+        line(OK, f"Ollama is running; pulled: {pulled}  (use it with LLM_PROVIDER=ollama)")
+    elif ollama_model in models:
+        line(OK, f"Ollama running, model {ollama_model!r} available")
+    else:
+        line(BAD, f"Ollama running but {ollama_model!r} is not pulled",
+             f"Pull it yourself (this app never downloads models):  ollama pull {ollama_model}\n"
+             f"         Pulled: {pulled}")
+    if need_ollama and ollama_fallback:
+        if ollama_fallback in models:
+            line(OK, f"fallback model {ollama_fallback!r} available")
+        else:
+            line(WARN, f"OLLAMA_FALLBACK_MODEL={ollama_fallback!r} is not pulled",
+                 f"Without it there is no fallback.  ollama pull {ollama_fallback}")
 
 # 4 --------------------------------------------------------------------------
 try:

@@ -4,6 +4,7 @@ httpx>=0.27            # model calls
 sqlite-vec>=0.1.9      # vector search inside the run database
 fastembed>=0.4         # local embeddings - no API key, no rate limit
 fastapi>=0.115         # the expert callback form
+python-multipart>=0.0.9  # FastAPI needs it to read a submitted form; web/expert.py fails to import without it
 uvicorn>=0.30          # serves it
 # dev
 pytest>=8.0

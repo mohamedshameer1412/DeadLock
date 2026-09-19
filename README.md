@@ -102,8 +102,11 @@ slice/      THE SPINE — read this, edit it, do not treat it as a black box
   __init__.py   what this package is, and what it is not  stdlib   16
 
 demo/       THE DOMAIN — rewrite this for your own problem
+  smoke/        the smallest agent: draft, gate, revise
+  study/        study notes + source-grounded MCQs, an independent validator,
+                bounded revision, human review        see demo/study/README.md
 web/        the form a human expert answers on
-scripts/    doctor · bakeoff · sync_architecture
+scripts/    doctor · bakeoff · sync_architecture · smoke · study
 tests/      six files — the store, the fences, the callbacks, the runner,
             a check that ARCHITECTURE.md still points at real code, and
             one live-key integration test

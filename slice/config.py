@@ -39,6 +39,14 @@ class Settings:
     langfuse_public: str
     langfuse_secret: str
     langfuse_host: str
+    # Provider selection. Defaults to openrouter (existing behaviour).
+    # Other values: "ollama", "fixture".
+    llm_provider: str = "openrouter"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:latest"
+    ollama_fallback_model: str = ""       # optional; a second model that is ALREADY pulled
+    ollama_num_ctx: int = 8192            # Ollama's default window silently cuts the prompt
+    ollama_timeout: int = 600             # seconds; a 7-8B model on a CPU is slow, not broken
 
     @property
     def tracing_enabled(self) -> bool:
@@ -61,4 +69,10 @@ def settings(reload: bool = True) -> Settings:
         langfuse_public       = g("LANGFUSE_PUBLIC_KEY", "").strip(),
         langfuse_secret       = g("LANGFUSE_SECRET_KEY", "").strip(),
         langfuse_host         = g("LANGFUSE_HOST", "https://cloud.langfuse.com").strip(),
+        llm_provider          = g("LLM_PROVIDER", "openrouter").strip().lower(),
+        ollama_base_url       = g("OLLAMA_BASE_URL", "http://localhost:11434").strip(),
+        ollama_model          = g("OLLAMA_MODEL", "llama3.1:latest").strip(),
+        ollama_fallback_model = g("OLLAMA_FALLBACK_MODEL", "").strip(),
+        ollama_num_ctx        = int(g("OLLAMA_NUM_CTX", "8192")),
+        ollama_timeout        = int(g("OLLAMA_TIMEOUT", "600")),
     )
