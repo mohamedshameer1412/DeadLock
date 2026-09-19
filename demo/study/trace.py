@@ -130,6 +130,17 @@ def build(store: Store, run_id: str) -> list[Event]:
         elif v.kind == "failure":
             events.append(Event(v.seq, "failure", f"STOPPED  {p['kind']}", [p["detail"]], "bad"))
 
+        elif v.kind == "feedback":
+            who = v.produced_by.removeprefix("tester:")
+            lines = ([f"rating: {p['rating']}/5"] if p.get("rating") else [])
+            lines += [f"what to improve: {p['comment']}"] if p.get("comment") else []
+            lines += [f"confusing or wrong: {p['confusing']}"] if p.get("confusing") else []
+            lines.append(f"(about draft {p['draft']}; run was {p['run_state']})")
+            events.append(Event(v.seq, "feedback",
+                                f"TESTER FEEDBACK  ({who}): "
+                                f"{'useful' if p['useful'] else 'NOT useful'}",
+                                lines, "ok" if p["useful"] else "warn"))
+
         elif v.kind == "step":
             events.append(Event(v.seq, "step",
                                 f"{p['state']} -> {p['next']}   {p['tokens']:,} tok   {p['seconds']}s",
@@ -154,6 +165,7 @@ def summary(store: Store, run_id: str) -> dict:
         "path": " -> ".join(path),
         "tokens": int(store.counter(run_id, "tokens")),
         "seconds": round(sum(s["seconds"] for s in steps), 1),
+        "feedback": sum(1 for v in versions if v.kind == "feedback"),
     }
 
 

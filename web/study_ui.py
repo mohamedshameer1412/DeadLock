@@ -14,6 +14,8 @@ the run database. Nothing here computes a validation result.
     GET  /api/run/{id}         state, draft, verdict, failure, summary, active
     POST /api/run/{id}/review  {decision: APPROVE|REJECT, notes?, who?} -> {run_id, state}
     POST /api/run/{id}/resume  continue a run that stopped mid-way -> {run_id, state}
+    POST /api/run/{id}/feedback {useful, rating?, comment?, confusing?, tester?} -> 201
+    GET  /api/run/{id}/feedback  one run's feedback     GET /api/feedback  all of it
 
 Live providers run in a background thread and the run page polls, so a slow local model
 never holds an HTTP request open (a tunnel drops those at ~100 s). The fixture provider
@@ -32,12 +34,13 @@ import html
 import json
 import os
 import threading
+import time
 from contextlib import contextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from demo.study import checks
+from demo.study import checks, feedback
 from demo.study import flow as study_flow
 from demo.study import trace as study_trace
 from demo.study.flow import MAX_REVISIONS
@@ -357,6 +360,57 @@ def _draft_html(draft: dict, source: str, n: int) -> str:
             f"<ul>{notes}</ul><h2>Quiz</h2>{qs}")
 
 
+def _feedback_card(run_id: str) -> str:
+    """The tester's form. It only ever POSTs to the API; nothing here is stored client-side."""
+    stars = "".join(f"<option value='{n}'>{n}</option>" for n in range(1, 6))
+    return (
+        "<div class='card' id='feedback'><h3>Was this study material useful?</h3>"
+        "<p class='note'>Your answer is saved with this run. Use a nickname - please do not "
+        "enter personal details.</p>"
+        "<div class='row'><button type='button' class='btn btn-sec' data-useful='yes'>Yes</button>"
+        "<button type='button' class='btn btn-sec' data-useful='no'>No</button></div>"
+        "<label for='fb-improve' style='margin-top:.9rem'>What should be improved?</label>"
+        "<textarea id='fb-improve' maxlength='1000' style='min-height:4rem'></textarea>"
+        "<label for='fb-confusing' style='margin-top:.6rem'>Was anything confusing or wrong?</label>"
+        "<textarea id='fb-confusing' maxlength='1000' style='min-height:4rem'></textarea>"
+        "<label for='fb-rating' style='margin-top:.6rem'>Rating (optional)</label>"
+        f"<select id='fb-rating'><option value=''>-</option>{stars}</select>"
+        "<label for='fb-who' style='margin-top:.6rem'>Your name or nickname (optional)</label>"
+        "<input type='text' id='fb-who' maxlength='60'>"
+        "<button type='button' class='btn' id='fb-submit' disabled>Submit feedback</button>"
+        "<div id='fb-msg'></div></div>"
+        "<script>(function(){let useful=null;const $=id=>document.getElementById(id);"
+        "const pick=document.querySelectorAll('[data-useful]');"
+        "pick.forEach(b=>b.addEventListener('click',()=>{useful=b.dataset.useful==='yes';"
+        "pick.forEach(x=>{x.className='btn'+(x===b?'':' btn-sec');});$('fb-submit').disabled=false;}));"
+        "$('fb-submit').addEventListener('click',async()=>{const m=$('fb-msg');m.className='';m.textContent='';"
+        "$('fb-submit').disabled=true;"
+        "const body={useful:useful,comment:$('fb-improve').value,confusing:$('fb-confusing').value,"
+        "tester:$('fb-who').value};if($('fb-rating').value)body.rating=Number($('fb-rating').value);"
+        "try{const r=await fetch('/api/run/'+" + json.dumps(run_id) + "+'/feedback',{method:'POST',"
+        "headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();"
+        "if(d.error){m.className='error-box';m.textContent=d.error;$('fb-submit').disabled=false;}"
+        "else location.reload();}catch(x){m.className='error-box';m.textContent='Network error: '+x.message;"
+        "$('fb-submit').disabled=false;}});})();</script>")
+
+
+def _feedback_list(items: list[dict]) -> str:
+    if not items:
+        return ""
+    rows = ""
+    for f in items:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(f["submitted_at"]))
+        rating = f" &middot; {f['rating']}/5" if f.get("rating") else ""
+        detail = "".join(f"<p class='note'><b>{label}:</b> {_esc(f[key])}</p>"
+                         for label, key in (("Improve", "comment"), ("Confusing or wrong", "confusing"))
+                         if f.get(key))
+        rows += (f"<div class='card'><b>{_esc(f['tester'])}</b> "
+                 f"{_tag('useful' if f['useful'] else 'not useful', 'ok' if f['useful'] else 'warn')}"
+                 f"{rating} <span class='dim'>&middot; {when} &middot; about draft {f['draft']}</span>"
+                 f"{detail}</div>")
+    return f"<h2>Feedback so far ({len(items)})</h2>{rows}"
+
+
 @app.get("/run/{run_id}", response_class=HTMLResponse)
 def run_page(run_id: str):
     with _open() as s:
@@ -390,11 +444,16 @@ def run_page(run_id: str):
                        f"({'draft ' + str(last['draft']) if last['draft'] else 'intake check'})</h3>"
                        f"{_issues(last['issues'])}</div>") if last and last["issues"] else ""
         draft_html = _draft_html(drafts[-1].payload, source, len(drafts)) if drafts else ""
+        # Only once nobody is still working on it: feedback on half a result is about
+        # something the tester has not seen.
+        feedback_html = ("" if active else
+                         _feedback_list(feedback.for_run(s, run_id)) + _feedback_card(run_id))
 
         body = (_nav(run_id) + f"<h1>{_esc(meta.get('title', 'Study Pack'))}</h1>"
                 f"<p class='sub'>Mode: {_esc(meta.get('mode', 'unknown'))} &nbsp; "
                 f"<a href='/run/{html.escape(run_id, quote=True)}/trace'>View trace &rarr;</a></p>"
-                + _strip(st) + working + stalled + fail_html + issues_html + review + draft_html)
+                + _strip(st) + working + stalled + fail_html + issues_html + review + draft_html
+                + feedback_html)
     head = "<meta http-equiv='refresh' content='3'>" if active else ""
     return _page("Study Pack", body, head)
 
@@ -593,3 +652,44 @@ def api_resume(run_id: str):
         return _err("this run is already being worked on", 409)
     with _open() as s:
         return JSONResponse({"run_id": run_id, "state": s.get_state(run_id).value})
+
+
+# ---------------------------------------------------------------- feedback API
+
+@app.post("/api/run/{run_id}/feedback")
+async def api_feedback(run_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:                                    # noqa: BLE001
+        return _err("Invalid JSON body", 400)
+    if not isinstance(body, dict):
+        return _err("Invalid JSON body", 400)
+    with _open() as s:
+        try:
+            s.get_state(run_id)
+        except KeyError:
+            return _err("run not found", 404)
+        if run_id in _ACTIVE:
+            return _err("this run is still being worked on; give feedback once it has finished", 409)
+        try:
+            record = feedback.submit(s, run_id, body)
+        except feedback.FeedbackError as exc:
+            return _err(str(exc), 422)
+    return JSONResponse({"run_id": run_id, "feedback": record}, status_code=201)
+
+
+@app.get("/api/run/{run_id}/feedback")
+def api_run_feedback(run_id: str):
+    with _open() as s:
+        try:
+            s.get_state(run_id)
+        except KeyError:
+            return _err("run not found", 404)
+        return JSONResponse({"run_id": run_id, "feedback": feedback.for_run(s, run_id)})
+
+
+@app.get("/api/feedback")
+def api_all_feedback():
+    """Everything testers have said, across runs. Unauthenticated, like the rest of this app."""
+    with _open() as s:
+        return JSONResponse({"feedback": feedback.everything(s)})

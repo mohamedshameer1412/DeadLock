@@ -8,6 +8,8 @@
     python scripts/study.py review <run_id> --approve --notes "checked the quotes"
     python scripts/study.py resume <run_id>                # pick a run up where it stopped
     python scripts/study.py trace  <run_id>                # the execution trace, any time
+    python scripts/study.py feedback <run_id> --useful --comment "..." --who sam
+    python scripts/study.py feedbacks [run_id]             # what testers said
     python scripts/study.py runs
 
 Exit codes from `run`, `review` and `resume`:
@@ -22,10 +24,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import dataclasses
+import time
 
 import httpx
 
-from demo.study import trace
+from demo.study import feedback, trace
 from demo.study.flow import DOMAIN, build_flow
 from demo.study.samples import CASES
 from demo.study.stub import SCENARIOS
@@ -87,6 +90,8 @@ def _show(store: Store, run_id: str, final: RunState) -> int:
               f"python scripts/study.py resume {run_id}")
     elif final is RunState.COMPLETE:
         print(f"trace again:  python scripts/study.py trace {run_id}")
+        print(f"a tester?     python scripts/study.py feedback {run_id} --useful "
+              "--comment \"...\" --who <nickname>")
     return EXIT.get(final, 1)
 
 
@@ -152,6 +157,52 @@ def cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_feedback(args: argparse.Namespace) -> int:
+    raw = {"useful": bool(args.useful), "comment": args.comment,
+           "confusing": args.confusing, "tester": args.who}
+    if args.rating is not None:
+        raw["rating"] = args.rating
+    store = Store(args.db)
+    try:
+        rec = feedback.submit(store, args.run_id, raw)
+    except KeyError:
+        print(f"No such run: {args.run_id}")
+        return 2
+    except feedback.FeedbackError as e:
+        print(f"Feedback not recorded: {e}")
+        return 2
+    print(f"Recorded feedback #{rec['seq']} on {args.run_id} from {rec['tester']!r}: "
+          f"{'useful' if rec['useful'] else 'NOT useful'} (about draft {rec['draft']}, "
+          f"run was {rec['run_state']}).")
+    return 0
+
+
+def cmd_feedbacks(args: argparse.Namespace) -> int:
+    store = Store(args.db)
+    if args.run_id:
+        try:
+            store.get_state(args.run_id)
+        except KeyError:
+            print(f"No such run: {args.run_id}")
+            return 2
+        items = feedback.for_run(store, args.run_id)
+    else:
+        items = feedback.everything(store)
+    if not items:
+        print("No feedback has been submitted yet.")
+        return 0
+    for f in items:
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(f["submitted_at"]))
+        rating = f" {f['rating']}/5" if f.get("rating") else ""
+        print(f"{f['run_id']}  #{f['seq']}  {when}  {f['tester']:<14} "
+              f"{'useful' if f['useful'] else 'NOT useful'}{rating}  (draft {f['draft']}, {f['run_state']})")
+        for label, key in (("improve", "comment"), ("confusing/wrong", "confusing")):
+            if f.get(key):
+                print(f"      {label}: {f[key]}")
+    print(f"\n{len(items)} feedback item(s).")
+    return 0
+
+
 def cmd_runs(args: argparse.Namespace) -> int:
     for r in Store(args.db).list_runs():
         print(f"{r['id']}  {r['domain']:<6} {r['state']}")
@@ -197,6 +248,21 @@ def main(argv: list[str] | None = None) -> int:
         s = sub.add_parser(name, help=helptext)
         s.add_argument("run_id")
         s.set_defaults(fn=fn)
+    f = sub.add_parser("feedback", help="record a real tester's verdict on a run")
+    f.add_argument("run_id")
+    fu = f.add_mutually_exclusive_group(required=True)
+    fu.add_argument("--useful", action="store_true")
+    fu.add_argument("--not-useful", dest="useful", action="store_false")
+    f.add_argument("--rating", type=int, help="1 (poor) to 5 (excellent)")
+    f.add_argument("--comment", default="", help="what should be improved?")
+    f.add_argument("--confusing", default="", help="what was confusing or wrong?")
+    f.add_argument("--who", default="anonymous", help="a nickname; no personal details needed")
+    f.set_defaults(fn=cmd_feedback)
+
+    fs = sub.add_parser("feedbacks", help="show feedback (one run, or everything)")
+    fs.add_argument("run_id", nargs="?")
+    fs.set_defaults(fn=cmd_feedbacks)
+
     sub.add_parser("runs", help="list recent runs").set_defaults(fn=cmd_runs)
 
     args = p.parse_args(argv)
