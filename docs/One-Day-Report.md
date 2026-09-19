@@ -1310,7 +1310,7 @@ The team’s internal preparation target is **95/100**. This is a target for evi
 
 ---
 
-# 15. Criterion 1 — Working Agentic Slice — 35 Marks
+# 15. Working Agentic Slice
 
 NEXUS is designed as a multi-step agentic workflow rather than a single LLM response:
 
@@ -1406,7 +1406,7 @@ The current screenshots prove terminal execution and quiz interaction, but they 
 
 ---
 
-# 17. Criterion 3 — Whether It Helped — 20 Marks
+# 17. Whether It Helped 
 
 NEXUS is intended to help learners identify weak concepts, receive source-grounded explanations, and revisit prerequisite topics instead of merely receiving a final score.
 
@@ -1441,7 +1441,7 @@ No improvement percentage should be invented without before-and-after evidence.
 
 ---
 
-# 18. Criterion 4 — How the Team Worked and Showed It — 10 Marks
+# 18. How the Team Worked and Showed It 
 
 The one-day development process followed a focused vertical-slice approach:
 
