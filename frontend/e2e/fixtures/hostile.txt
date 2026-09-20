@@ -1,0 +1,3 @@
+# Notes
+
+A paragraph with <img src=x onerror="window.__pwned=1"> and <script>window.__pwned=1</script> and words about stacks and queues in memory.

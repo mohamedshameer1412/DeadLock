@@ -300,7 +300,7 @@ class Repo:
 
     def list_doubts(self, user_id: int, subject_id: int, limit: int = 20) -> list[dict]:
         rows = self.db.execute(
-            "SELECT d.id, d.question, d.status, d.tier, d.created_at, d.feedback FROM doubts d "
+            "SELECT d.id, d.question, d.status, d.tier, d.created_at, d.feedback, d.saved FROM doubts d "
             "JOIN subjects s ON s.id=d.subject_id WHERE d.subject_id=? AND d.user_id=? AND s.user_id=? "
             "ORDER BY d.created_at DESC, d.id DESC LIMIT ?", (subject_id, user_id, user_id, limit)).fetchall()
         return [dict(r) for r in rows]

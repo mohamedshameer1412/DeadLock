@@ -75,11 +75,11 @@ def test_migration_creates_tables(isolated):  # noqa: F811
         store.close()
 
 
-def test_schema_version_is_6(isolated):  # noqa: F811
+def test_schema_version_is_9(isolated):  # noqa: F811
     store = open_db()
     try:
         v = store.db.execute("SELECT MAX(v) FROM schema_version").fetchone()[0]
-        assert v == 6
+        assert v == 9
     finally:
         store.close()
 

@@ -112,6 +112,17 @@ def authenticate(db: sqlite3.Connection, username: str, password: str, ip: str =
     return int(row["id"])
 
 
+def change_password(db: sqlite3.Connection, user_id: int, username: str, current: str, new: str, ip: str = "") -> None:
+    """Set a new password after checking the current one (failed checks are throttled like a login)."""
+    if authenticate(db, username, current, ip) != user_id:
+        raise AuthError(GENERIC_FAILURE)
+    check_password(new, username)
+    if new == current:
+        raise AuthError("Choose a different password from the current one.")
+    salt, params = os.urandom(16), _params()
+    db.execute("UPDATE users SET pw_salt=?, pw_hash=?, scrypt_params=? WHERE id=?", (salt, _derive(new, salt, params), json.dumps(params), user_id))
+
+
 # ------------------------------------------------------------------ sessions
 
 @dataclass(frozen=True)

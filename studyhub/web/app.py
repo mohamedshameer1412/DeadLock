@@ -19,12 +19,15 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 
 from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from studyhub import auth, ingest, mcq, models, qa, retrieval, settings
 from studyhub import db as studydb
 from studyhub import scoring, quiz_flow, quiz_agents
 from studyhub.repo import Repo, SubjectError
+from studyhub.web import api as api_module
 from studyhub.web import ui
 
 SESSION_COOKIE, PRE_COOKIE = "sh_session", "sh_pre"
@@ -44,6 +47,16 @@ async def _lifespan(_app):
 
 
 app = FastAPI(title="StudyHub", docs_url=None, redoc_url=None, openapi_url=None, lifespan=_lifespan)
+
+app.include_router(api_module.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/"):
+        return api_module.err(422, "validation", "The request was not understood.")
+    return await request_validation_exception_handler(request, exc)
+
 
 # Which models answer a question. A function so tests (and other deployments) can swap it: (db, user) -> (tiers, notes).
 tier_factory = models.build_tiers

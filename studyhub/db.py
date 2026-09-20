@@ -342,6 +342,38 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (6);
     COMMIT;
     """),
+    (7, """    BEGIN;
+    -- The mode a quiz was started in, so resuming it keeps the same rules (assessment = focus events counted, copy/paste blocked).
+    ALTER TABLE quiz_attempts ADD COLUMN mode TEXT NOT NULL DEFAULT 'practice' CHECK (mode IN ('practice', 'assessment'));
+    INSERT INTO schema_version(v) VALUES (7);
+    COMMIT;
+    """),
+    (8, """    BEGIN;
+    -- Backtracking: questions added to a running quiz because a related earlier question was missed.
+    ALTER TABLE attempt_answers ADD COLUMN backtrack_from INTEGER;            -- topic whose miss caused this question (NULL = a normal question)
+    ALTER TABLE attempt_answers ADD COLUMN depth INTEGER NOT NULL DEFAULT 0;   -- how many steps back from the original question
+    ALTER TABLE quiz_attempts ADD COLUMN kind TEXT NOT NULL DEFAULT 'standard' CHECK (kind IN ('standard', 'diagnostic', 'revision'));
+    INSERT INTO schema_version(v) VALUES (8);
+    COMMIT;
+    """),
+    (9, """    BEGIN;
+    -- Saved answers (bookmarks) and spaced-repetition state of practice questions.
+    ALTER TABLE doubts ADD COLUMN saved INTEGER NOT NULL DEFAULT 0 CHECK (saved IN (0, 1));
+    CREATE TABLE card_reviews (
+        user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        item_id        INTEGER NOT NULL REFERENCES mcq_items(id) ON DELETE CASCADE,
+        ease           REAL NOT NULL DEFAULT 2.5,
+        interval_days  REAL NOT NULL DEFAULT 0,
+        reps           INTEGER NOT NULL DEFAULT 0,
+        lapses         INTEGER NOT NULL DEFAULT 0,
+        due            REAL NOT NULL,
+        last_at        REAL NOT NULL,
+        PRIMARY KEY (user_id, item_id)
+    );
+    CREATE INDEX card_reviews_due ON card_reviews(user_id, due);
+    INSERT INTO schema_version(v) VALUES (9);
+    COMMIT;
+    """),
 ]
 
 

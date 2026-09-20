@@ -22,3 +22,35 @@ AI_HANDOFF.md
 
 # pytest temp folder for environments where the system temp is not writable
 .pytest_tmp/
+
+# Nexus frontend
+frontend/node_modules/
+frontend/.next/
+frontend/test-results/
+frontend/playwright-report/
+frontend/.env*.local
+frontend/.next-e2e/
+frontend/.e2e/
+frontend/e2e-screenshots/
+
+frontend/public/mediapipe/wasm/
+fix_cb_imp.py
+fix_cb.py
+fix_globals.py
+fix_imports.py
+fix_jsconfig.py
+fix_layout_png.py
+fix_logo2.py
+fix_logo3.py
+fix_mcq.py
+fix_metadata.py
+fix_nav.py
+fix_quiz_shadows.py
+fix_radio.py
+fix_shadows.py
+fix_sidebar.py
+fix_sidebar2.py
+fix_tw.py
+fix_ui.py
+fix_ui2.py  
+update_logo.py
