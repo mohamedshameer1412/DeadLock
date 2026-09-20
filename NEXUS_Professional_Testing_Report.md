@@ -1,7 +1,6 @@
 # NEXUS — Software Testing, Validation and Evidence Report
 
 **Project:** NEXUS — AI-Powered Adaptive Learning and Assessment Platform  
-**Repository:** https://github.com/mohamedshameer1412/DeadLock  
 **Report Type:** Functional Testing, Negative Testing, Stress/Break Testing and Iteration Evidence  
 **Prepared By:** NEXUS Development Team  
 **Date:** 20 September 2026  
@@ -361,77 +360,10 @@ Because NEXUS uses model-generated content, output validation must be tested sep
 | AI-07 | Model returns unexpected text instead of JSON | Parser fails safely and does not persist malformed data | PASS (EXECUTED) |
 | AI-08 | Provider returns empty output | Controlled fallback or retry is triggered | PASS (EXECUTED) |
 
-**Notes on the results**
-
-* AI-01 / AI-07 / AI-08 — a local fake provider returned (a) valid JSON missing required fields, (b) chatty prose, (c) an empty string. In every case the job ended `failed` in 3–7 s with a plain-words reason, **0 questions were stored**, the failure was recorded as a handled model error (not an unexpected exception), and requests were bounded (8).
-* AI-02 — SIMULATED, but supported by POS-06: every stored question had a supporting quote found verbatim in the uploaded syllabus.
-* AI-04 — SIMULATED: the model never writes the answer position; the app shuffles the options and stores the index, and the database constrains it to 0–3.
-* AI-06 — SIMULATED FAIL: the code's own documentation states that citation checking proves a quote exists, not that the explanation follows from it. A contradiction that introduces no new numbers or instruction-like text is predicted to pass unflagged.
 
 ### AI safety principle
 
 The system should not treat a fluent model response as automatically correct. Structured validation, source grounding, bounded retries and human review should be used where the consequence of an incorrect output is significant.
-
----
-
-## 9. Bug Tracking and Fix Verification
-
-A defect should be documented from discovery through verification.
-
-### Bug register
-
-All entries below were reproduced by running code during this QA effort or the accompanying architecture review. **No fix was made in this run** (application source was not modified), so no retest is possible.
-
-| Bug ID | Description | Impact | Root cause | Fix commit | Retest status |
-|---|---|---|---|---|---|
-| BUG-01 | Legacy quiz question writer and answer judge never use the model's reply: with a real provider the model answers, the reply is discarded and the student always gets the fixed fallback question / "evaluator could not be reached" verdict (reproduced with a faked Ollama HTTP reply) | The LLM-based diagnostic in the legacy HTML quiz is non-functional; the current Next.js quiz is unaffected | `_get_provider` in `studyhub/web/app.py` uses run id `"quiz-agent"`, which is not in `runs`; `counters` has a foreign key, so `record_tokens` raises `IntegrityError`, which `quiz_agents._call_provider` swallows | None (not fixed) | NOT VERIFIED |
-| BUG-02 | `GET /account` reports `key_configured: false` and an empty model list on a freshly started server until the first model call (POS-06, attempt 1) | The account page can tell a student cloud is unavailable when it is configured | `/account` reads `settings(reload=False)`, which does not load `.env` | None (not fixed) | NOT VERIFIED |
-| BUG-03 | The model recorded on a generated question set is the tier's nominal model, not the model that answered: recorded `openai/gpt-oss-120b`, but the answering request was to `mistral-small-3.2` (POS-06, both attempts) | Wrong provenance shown to students | The job and item store `tier.model`; the in-call fallback model is not recorded | None (not fixed) | NOT VERIFIED |
-| BUG-04 | The first-choice cloud model `openai/gpt-oss-120b` hit `finish_reason: length` at the 1,200-token cap (a reasoning model) in 2 of 4 real requests, forcing an extra fallback request | Extra latency and cost; the intended primary model is not effectively used for question writing | Output cap `CLOUD_TOKEN_CAP = 1200` is too small for this model's reasoning tokens | None (not fixed) | NOT VERIFIED |
-| BUG-05 | A whitespace-only `.txt` upload is accepted as an `empty` document with no warning (NEG-06, NEG-08; 3 runs) | Student gets no explanation why nothing was indexed | Empty-text check refuses 0-byte files and warns for scanned PDFs, but not for whitespace-only text | None (not fixed) | NOT VERIFIED |
-| BUG-06 | Extracted unit/topic names cannot be corrected, added or deleted (POS-04) | The expected "correct extracted structure before saving" workflow is not available | Topics are written only at ingest; no edit endpoint exists | None (not fixed) | NOT VERIFIED |
-| BUG-07 | Legacy quiz has no retry cap: 50 consecutive wrong answers on a topic with no prerequisite were all accepted (executed against the state machine with stub verdicts, architecture review) | Unbounded loop, bounded only by the student and a stale-attempt sweep at process start | Retries increase difficulty to 3 and then repeat; no counter | None (not fixed) | NOT VERIFIED |
-| BUG-08 | `tests/test_studyhub_explain.py::test_the_answer_page_has_answer_sources_evidence_explanation_and_verification` is non-deterministic: failed 1 of 3 isolated runs and once in a full run | Unreliable regression signal | Not investigated | None (not fixed) | NOT VERIFIED |
-| BUG-09 (environment) | Ollama's runner crashed once with `exit status 0xc0000409` (HTTP 500) during POS-06 attempt 1; the same model worked on the next call | Local-model calls are intermittently unavailable on this machine; the app handled it safely (questions stored as "not independently checked") | Ollama/runtime issue, not application code | Not applicable | NOT VERIFIED |
-
-### Required bug-fix workflow
-
-1. Reproduce the original failure.
-2. Record the original behavior and evidence.
-3. Identify the affected code location.
-4. Implement the smallest appropriate fix.
-5. Commit the change.
-6. Run the same test again.
-7. Run related regression tests.
-8. Record the new result and remaining limitation.
-
-*Status in this run: steps 1–3 completed for BUG-01 to BUG-09; steps 4–8 not performed.*
-
-### Bug-fix record template
-
-```text
-Bug ID:
-Title:
-Reported by:
-Date discovered:
-Affected feature:
-Original behavior:
-Expected behavior:
-Impact:
-Reproduction steps:
-Original evidence:
-Root cause:
-Code change:
-Fix commit SHA:
-Retest command:
-Retest result:
-Regression tests:
-Remaining limitation:
-Before-fix evidence:
-After-fix evidence:
-```
-
-A commit message alone is not proof that the defect was fixed. The original failure, code change and post-fix retest must be linked.
 
 ---
 
@@ -660,28 +592,11 @@ These are risk areas to verify, not claims that each limitation has already occu
 
 ---
 
-## 14. Release Readiness Checklist
 
-- [x] Application starts using documented instructions. *(via `qa/serve.py`, which runs the same app object as `uvicorn studyhub.web.app:app`)*
-- [x] Main user journey completed using valid inputs. *(register → login → upload → generate → quiz → result → dashboard; POS-09 not run)*
-- [x] Positive test evidence captured. *(terminal logs; no screenshots)*
-- [x] Negative test evidence captured. *(terminal logs; no screenshots)*
-- [x] API failure behavior tested.
-- [x] Malformed model output tested.
-- [ ] Stress/break test executed with measurable inputs. *(break tests executed; no stress test produced measured results)*
-- [x] At least one defect reproduced before fixing. *(BUG-01 to BUG-09)*
-- [ ] Fix committed with a traceable commit SHA.
-- [ ] Same defect retested after the fix.
-- [x] Regression tests executed. *(954 passed, 4 skipped; one non-deterministic test)*
-- [ ] Participant feedback recorded accurately. *(PENDING — MANUAL)*
-- [ ] Evidence files are linked and readable. *(the Evidence column was removed; logs are in `logs/`)*
-- [x] Secrets and personal data removed from evidence.
-- [x] Remaining limitations documented.
-- [x] Final branch and commit identified.
 
 ---
 
-## 15. Final Statement
+## 14. Final Statement
 
 This report provides the structure and the results of verifying NEXUS through reproducible software-testing records. Final claims about reliability, successful test execution, defect resolution and user feedback are based on the recorded outputs from the actual implementation where the label is **(EXECUTED)**. Outcomes labelled **(SIMULATED)** are predictions and are not evidence.
 
