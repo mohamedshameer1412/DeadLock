@@ -49,19 +49,7 @@ To ensure it runs smoothly, start Ollama and pull the required model:
 ollama pull llama3.1
 ```
 
-## 🧪 Testing
 
-The repository contains a rigorous testing suite covering functional, integration, and AI validation testing. 
-
-- To run the Python test suite:
-  ```bash
-  python -m pytest
-  ```
-- To run frontend End-to-End tests:
-  ```bash
-  cd frontend
-  npm run e2e
-  ```
 
 *For more details on our verification methodology, see our [Testing Report](NEXUS_Professional_Testing_Report.md).*
 
