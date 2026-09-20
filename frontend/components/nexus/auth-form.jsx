@@ -7,7 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { Eye, EyeOff } from "lucide-react";
-import { api, fetchSession } from "@/lib/api";
+import { api, clearOfflineData, fetchSession } from "@/lib/api";
 import { friendlyError } from "@/lib/utils";
 import { keys } from "@/lib/queries";
 import { Alert, Button, Input, Label } from "@/components/ui/primitives";
@@ -42,6 +42,7 @@ export default function AuthForm({ mode }) {
     try {
       await api(register_ ? "/register" : "/login", { method: "POST", json: { username: values.username, password: values.password } });
       qc.removeQueries();
+      clearOfflineData();
       await qc.invalidateQueries({ queryKey: keys.session });
       router.replace("/subjects");
     } catch (e) {
@@ -84,6 +85,7 @@ export default function AuthForm({ mode }) {
       <Button type="submit" className="w-full" disabled={isSubmitting}>
         {isSubmitting ? "Please wait…" : register_ ? "Register" : "Log in"}
       </Button>
+      {!register_ && <p className="text-center text-sm"><Link href="/forgot-password">Forgot your password?</Link></p>}
       <p className="text-center text-sm">
         {register_ ? (
           <>

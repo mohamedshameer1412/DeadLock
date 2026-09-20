@@ -17,6 +17,7 @@ GUESS = 0.25
 DISC = 1.0
 PRIOR_SD = 1.2
 GRID = [i / 10 for i in range(-40, 41)]
+PRIOR_B = {"easy": -0.8, "medium": 0.0, "hard": 0.8}    # starting difficulty of a question, from how it was written
 MIN_EVIDENCE = 3            # answers needed before a topic gets a label other than "not enough answers"
 BACKTRACK_MAX_DEPTH = 2     # a prerequisite of a prerequisite, no further
 BACKTRACK_PER_STEP = 2      # questions asked from each prerequisite
@@ -59,29 +60,30 @@ def label(answered: int, confidence: float) -> str:
 
 
 def _rows(db: sqlite3.Connection, user_id: int, subject_id: int) -> list[dict]:
-    q = ("SELECT aa.item_id, aa.is_correct, aa.response_time, aa.answered_at, aa.attempt_id, mi.topic_id FROM attempt_answers aa "
+    q = ("SELECT aa.item_id, aa.is_correct, aa.response_time, aa.answered_at, aa.attempt_id, mi.topic_id, mi.difficulty FROM attempt_answers aa "
          "JOIN quiz_attempts qa ON qa.id=aa.attempt_id JOIN mcq_items mi ON mi.id=aa.item_id "
          "WHERE qa.user_id=? AND qa.subject_id=? AND aa.is_correct IS NOT NULL ORDER BY aa.answered_at, aa.id")
     return [dict(r) for r in db.execute(q, (user_id, subject_id))]
 
 
-def _difficulty_table(rows: list[dict]) -> dict[int, tuple[int, int]]:
-    t: dict[int, list[int]] = defaultdict(lambda: [0, 0])
+def _difficulty_table(rows: list[dict]) -> dict[int, tuple[int, int, float]]:
+    t: dict[int, list] = defaultdict(lambda: [0, 0, 0.0])
     for r in rows:
         t[r["item_id"]][0] += 1
         t[r["item_id"]][1] += int(r["is_correct"])
-    return {k: (v[0], v[1]) for k, v in t.items()}
+        t[r["item_id"]][2] = PRIOR_B.get(r.get("difficulty"), 0.0)
+    return {k: (v[0], v[1], v[2]) for k, v in t.items()}
 
 
 def _b(table: dict, item_id: int, ok: bool) -> float:
-    """Difficulty of an item from the student's OTHER answers to it (leave-one-out), shrunk toward 0."""
-    n, c = table.get(item_id, (0, 0))
+    """Difficulty of an item: how it was written (prior), pulled toward what the student's OTHER answers to it show (leave-one-out)."""
+    n, c, prior = table.get(item_id, (0, 0, 0.0))
     n, c = n - 1, c - int(ok)
     if n <= 0:
-        return 0.0
+        return prior
     q = (c + 1) / (n + 2)
     q = min(max((q - GUESS) / (1 - GUESS), 0.1), 0.9)
-    return -math.log(q / (1 - q)) * n / (n + 2)
+    return (2 * prior + n * -math.log(q / (1 - q))) / (2 + n)
 
 
 def _pack(rows: list[dict], table: dict) -> list[tuple[float, bool]]:
@@ -225,3 +227,45 @@ def recommendations(topics: list[dict], overall: dict | None, wrong: int) -> lis
     if not tips:
         tips.append("Everything with enough answers looks solid. Keep practising to keep it that way.")
     return tips
+
+
+LEVEL_NAMES = {"new": "New learner", "intermediate": "Intermediate", "professional": "Professional"}
+
+
+def suggested_level(theta: float, answered: int) -> str | None:
+    if answered < 5:
+        return None
+    return "new" if theta < -0.35 else "intermediate" if theta < 0.45 else "professional"
+
+
+def diagnosis(db: sqlite3.Connection, user_id: int, subject_id: int, attempt_id: int, claimed: str | None) -> dict | None:
+    """What a diagnostic quiz says: accuracy by difficulty, the level it suggests, and which topics look strong or weak."""
+    rows = [r for r in _rows(db, user_id, subject_id) if r["attempt_id"] == attempt_id]
+    if not rows:
+        return None
+    by = {d: [0, 0] for d in ("easy", "medium", "hard")}
+    for r in rows:
+        d = r["difficulty"] if r["difficulty"] in by else "medium"
+        by[d][1] += 1
+        by[d][0] += int(r["is_correct"])
+    est = estimate([(PRIOR_B.get(r["difficulty"], 0.0), bool(r["is_correct"])) for r in rows])
+    level = suggested_level(est["theta"], len(rows))
+    conf = topic_confidence(db, user_id, subject_id)["topics"]
+    names = {r["id"]: r["name"] for r in db.execute("SELECT id, name FROM topics WHERE subject_id=?", (subject_id,))}
+    mine = []
+    for tid in {r["topic_id"] for r in rows if r["topic_id"]}:
+        e = conf.get(tid)
+        if e and tid in names:
+            mine.append({"topic_id": tid, "name": names[tid], "confidence": e["confidence"], "label": e["label"], "answered": e["answered"], "correct": e["correct"]})
+    mine.sort(key=lambda t: t["confidence"])
+    order = ["new", "intermediate", "professional"]
+    note = None
+    if level and claimed in order:
+        gap = order.index(level) - order.index(claimed)
+        note = ("Your result matches what you said." if gap == 0 else
+                f"You said {LEVEL_NAMES[claimed]}; this test suggests {LEVEL_NAMES[level]} ({'a step lower' if gap < 0 else 'a step higher'}). "
+                "It is only ten questions, so treat it as a starting point.")
+    return {"claimed": claimed, "suggested": level, "note": note, "theta": est["theta"], "confidence": est["confidence"],
+            "by_difficulty": {k: {"correct": v[0], "answered": v[1]} for k, v in by.items()},
+            "weakest": mine[:3], "strongest": [t for t in reversed(mine) if t["confidence"] >= 0.55][:3],
+            "answered": len(rows), "correct": sum(int(r["is_correct"]) for r in rows)}

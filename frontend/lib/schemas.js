@@ -5,7 +5,8 @@ export const User = z.object({ id: z.number(), username: z.string(), cloud_conse
 export const Session = z.object({ authenticated: z.boolean(), user: User.nullable(), csrf: z.string() });
 
 export const Counts = z.object({ documents: z.number(), topics: z.number(), questions: z.number(), practice_questions: z.number() });
-export const Subject = z.object({ id: z.number(), name: z.string(), description: z.string(), created_at: z.string(), counts: Counts });
+export const Level = z.enum(["new", "intermediate", "professional"]);
+export const Subject = z.object({ id: z.number(), name: z.string(), description: z.string(), created_at: z.string(), counts: Counts, level: Level.nullable().optional() });
 export const SubjectList = z.object({ subjects: z.array(Subject) });
 
 export const Doc = z.object({
@@ -27,15 +28,18 @@ export const SearchResult = z.object({
     page_end: z.number().nullable(), text: z.string(), matched: z.array(z.string()), relevant: z.boolean(),
   })),
 });
-export const Account = z.object({ user: User, key_configured: z.boolean(), allowed_models: z.array(z.string()) });
+export const Account = z.object({
+  user: User, key_configured: z.boolean(), allowed_models: z.array(z.string()),
+  email: z.object({ address: z.string().nullable(), verified: z.boolean(), pending: z.string().nullable(), weekly: z.boolean(), last_digest_at: z.string().nullable(), can_send: z.boolean() }).optional(),
+});
 
 export const Citation = z.object({
-  passage_id: z.number().nullable(), quote: z.string(), document: z.string(), heading_path: z.string(),
+  passage_id: z.number().nullable(), document_id: z.number().nullable().optional(), quote: z.string(), document: z.string(), heading_path: z.string(),
   page_start: z.number().nullable(), page_end: z.number().nullable(),
 });
 export const Claim = z.object({ text: z.string(), citations: z.array(Citation) });
 export const Source = z.object({
-  passage_id: z.number().nullable(), document: z.string(), heading_path: z.string(), page_start: z.number().nullable(),
+  passage_id: z.number().nullable(), document_id: z.number().nullable().optional(), document: z.string(), heading_path: z.string(), page_start: z.number().nullable(),
   page_end: z.number().nullable(), text: z.string(), matched: z.array(z.string()),
 });
 export const QuestionItem = z.object({
@@ -54,7 +58,7 @@ export const Mcq = z.object({ id: z.number(), topic_id: z.number().nullable(), t
 export const McqList = z.object({ questions: z.array(Mcq) });
 export const McqStarted = z.object({ id: z.number(), status: z.string() });
 export const McqJob = z.object({
-  id: z.number(), status: z.string(), scope: z.string(), requested: z.number(), produced: z.number(), rejected: z.number(), reason: z.string().nullable().optional(),
+  id: z.number(), status: z.string(), purpose: z.string().optional(), scope: z.string(), requested: z.number(), produced: z.number(), rejected: z.number(), reason: z.string().nullable().optional(),
   model: z.string().nullable().optional(), tier: z.string().nullable().optional(), questions: z.array(Mcq), steps: z.array(z.object({ by: z.string(), text: z.string() })),
 });
 export const McqAnswer = z.object({
@@ -79,8 +83,17 @@ export const QuizState = z.discriminatedUnion("state", [
   }),
   z.object({ state: z.literal("complete"), attempt: Attempt }),
 ]);
+const DiagTopic = z.object({ topic_id: z.number(), name: z.string(), confidence: z.number(), label: z.string(), answered: z.number(), correct: z.number() });
+export const Diagnosis = z.object({
+  claimed: z.string().nullable(), suggested: z.string().nullable(), note: z.string().nullable(), theta: z.number(), confidence: z.number(),
+  by_difficulty: z.object({ easy: z.object({ correct: z.number(), answered: z.number() }), medium: z.object({ correct: z.number(), answered: z.number() }), hard: z.object({ correct: z.number(), answered: z.number() }) }),
+  weakest: z.array(DiagTopic), strongest: z.array(DiagTopic), answered: z.number(), correct: z.number(),
+});
+export const NoteItem = z.object({ id: z.number(), title: z.string(), source: z.string(), doubt_id: z.number().nullable(), created_at: z.string(), updated_at: z.string(), snippet: z.string() });
+export const NoteList = z.object({ notes: z.array(NoteItem) });
+export const Note = NoteItem.extend({ body: z.string() });
 export const QuizResult = z.object({
-  attempt: Attempt, skipped: z.number(), ended_reason: z.string().nullable(),
+  attempt: Attempt, skipped: z.number(), ended_reason: z.string().nullable(), diagnosis: Diagnosis.nullable().optional(),
   answers: z.array(z.object({ question: z.string(), topic: z.string(), options: z.array(z.string()), chosen_index: z.number(), answer_index: z.number(), correct: z.boolean(), explanation: z.string(), backtrack: z.boolean().optional() })),
   focus_events: z.object({ tab_switch: z.number(), full_screen_exit: z.number(), copy_attempt: z.number(), paste_attempt: z.number() }),
   weak_topics: z.array(Weak),
@@ -139,3 +152,24 @@ export function check(schema, data) {
   if (!r.success) throw new Error(`The server sent an unexpected response (${r.error.issues[0]?.path.join(".") || "root"}).`);
   return r.data;
 }
+
+// ---- roadmap and skill gaps
+const Src = z.object({ answered: z.number(), correct: z.number() });
+const Sources = z.object({ diagnostic: Src, quiz: Src, revision: Src, assessment: Src, flashcards: Src });
+const Gap = z.object({
+  topic_id: z.number(), name: z.string(), path: z.string(), ordinal: z.number(), status: z.enum(["critical", "moderate", "minor", "on_track", "unassessed"]), gap: z.number().nullable(),
+  confidence: z.number().nullable(), target: z.number(), answered: z.number(), correct: z.number(), sources: Sources, trend: z.string().nullable(),
+  blocked_by: z.array(z.object({ topic_id: z.number(), name: z.string(), confidence: z.number().nullable() })), reasons: z.array(z.string()), avg_seconds: z.number().nullable(),
+});
+const Step = z.object({ type: z.string(), title: z.string(), minutes: z.number(), href: z.string(), topic_id: z.number(), status: z.string() });
+const Week = z.object({ week: z.number(), minutes: z.number(), steps: z.array(Step), focus: z.array(z.string()), goal: z.string(), milestone: z.string(), idea: z.string().nullable() });
+export const Roadmap = z.object({
+  subject: z.string(), level: Level.nullable(), target: z.number(), readiness: z.number().nullable(),
+  counts: z.object({ critical: z.number(), moderate: z.number(), unassessed: z.number(), minor: z.number(), on_track: z.number() }),
+  source_totals: Sources, source_labels: z.record(z.string(), z.string()), gaps: z.array(Gap),
+  roadmap: z.object({ weeks: z.array(Week), summary: z.object({
+    total_minutes: z.number(), weeks: z.number(), shown_weeks: z.number(), hours_per_week: z.number(), lagging: z.number(), unassessed: z.number(),
+    target_date: z.string().nullable(), weeks_available: z.number().nullable(), on_track: z.boolean().nullable(), hours_needed: z.number().nullable() }) }),
+  profile: z.object({ goal: z.string(), hours_per_week: z.number(), target_date: z.string().nullable() }),
+  coach: z.object({ status: z.string(), text: z.string(), from_model: z.boolean(), model: z.string().nullable(), stale: z.boolean(), at: z.string().nullable() }),
+});

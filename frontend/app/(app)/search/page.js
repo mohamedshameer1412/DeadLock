@@ -43,7 +43,7 @@ function Results() {
                         <Link href={`/subjects/${r.subject_id}/materials`}>{r.subject}</Link> · {r.document}{r.heading_path && <> · section: {r.heading_path}</>}{r.page_start != null && <> · {pageLabel(r.page_start, r.page_end)}</>}
                       </p>
                       <p className="break-anywhere mt-1 whitespace-pre-wrap text-sm"><Marked text={r.text} terms={data.terms} /></p>
-                      <Link className="mt-1 inline-flex min-h-11 items-center text-sm" href={`/subjects/${r.subject_id}/materials/${r.document_id}#passage-${r.passage_id}`}>Open in the document</Link>
+                      <Link className="mt-1 inline-flex min-h-11 items-center text-sm" href={`/subjects/${r.subject_id}/materials/${r.document_id}#c${r.passage_id}`}>Open in the document</Link>
                     </Card>
                   </li>
                 ))}

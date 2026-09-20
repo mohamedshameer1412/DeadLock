@@ -14,7 +14,10 @@ from pathlib import Path
 
 def load_env(path: str | Path = ".env") -> bool:
     """Read .env into the environment. Real environment variables win, so a
-    Codespaces secret or an exported value can override the file."""
+    Codespaces secret or an exported value can override the file. Under pytest nothing is read, so a test can never pick up a real
+    key or mail account from a developer's .env."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return False
     try:
         for line in Path(path).read_text().splitlines():
             line = line.strip()

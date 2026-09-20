@@ -1,15 +1,16 @@
 "use client";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Send } from "lucide-react";
+import { FileText, NotebookPen, Send } from "lucide-react";
 import { api } from "@/lib/api";
 import { getDocs, getQuestions, getSubject, getTopics, keys } from "@/lib/queries";
 import { friendlyError } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { Bubble, ChatTurn } from "@/components/nexus/chat";
+import { DocPane, DocSheet, useIsDesktop } from "@/components/nexus/doc-viewer";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
 import { Alert, Button, Dialog, DialogClose, DialogContent, Skeleton } from "@/components/ui/primitives";
 
@@ -69,6 +70,10 @@ export default function AskPage() {
   const [all, setAll] = useState(false);
   const [toDelete, setToDelete] = useState(null);
   const [draft, setDraft] = useState("");
+  const [viewer, setViewer] = useState(null); // { docId, page, quote, passageId } | { docId: null } when opened from the toolbar
+  const desktop = useIsDesktop();
+  const prefill = useSearchParams().get("q");
+  useEffect(() => { if (prefill) setDraft(prefill.slice(0, MAX)); }, [prefill]);
   const endRef = useRef(null);
   const hasMaterial = docs.data?.some((d) => d.chunks > 0);
 
@@ -86,6 +91,12 @@ export default function AskPage() {
     onError: (e) => { toast.error(friendlyError(e)); setToDelete(null); },
   });
 
+  const notes = useMutation({
+    mutationFn: () => api(`/subjects/${id}/notes/from-answers`, { method: "POST", json: { doubt_ids: visible.filter((x) => x.status === "answered" || x.status === "extractive").map((x) => x.id) } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: keys.notes(id) }); toast.success("Saved as a note from this chat"); },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+
   if (docs.isPending || history.isPending) return <Skeleton className="h-64" />;
   if (history.error) return <ErrorState error={history.error} onRetry={history.refetch} />;
   if (!hasMaterial) {
@@ -96,9 +107,16 @@ export default function AskPage() {
     );
   }
 
+  const split = !!viewer && desktop;
+  const pane = <DocPane subjectId={id} target={viewer} onClose={() => setViewer(null)} />;
   return (
-    <div className="flex min-h-[calc(100dvh-16rem)] flex-col">
+    <div className={split ? "lg:grid lg:grid-cols-[minmax(0,1fr)_30rem] lg:gap-6" : ""}>
+    <div className="flex min-h-[calc(100dvh-16rem)] min-w-0 flex-col">
       <h2 className="sr-only">Chat with your materials</h2>
+      <div className="mb-3 flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={() => setViewer((v) => (v ? null : { docId: null }))} aria-pressed={!!viewer}><FileText className="h-4 w-4" aria-hidden="true" /> {viewer ? "Hide my documents" : "Show my documents"}</Button>
+        <Button variant="secondary" size="sm" onClick={() => notes.mutate()} disabled={notes.isPending || !visible.some((x) => x.status === "answered" || x.status === "extractive")}><NotebookPen className="h-4 w-4" aria-hidden="true" /> {notes.isPending ? "Saving…" : "Notes from this chat"}</Button>
+      </div>
       <div role="log" aria-label="Conversation" aria-live="polite" className="flex-1 pb-4">
         {items.length > visible.length && (
           <div className="mb-4 text-center"><Button variant="secondary" size="sm" onClick={() => setAll(true)}>Show {items.length - visible.length} earlier</Button></div>
@@ -125,7 +143,7 @@ export default function AskPage() {
               )}
             </Bubble>
           </li>
-          {visible.map((item) => <ChatTurn key={item.id} subjectId={id} item={item} onDelete={setToDelete} />)}
+          {visible.map((item) => <ChatTurn key={item.id} subjectId={id} item={item} onDelete={setToDelete} onView={setViewer} />)}
         </ul>
         <div ref={endRef} />
       </div>
@@ -142,6 +160,9 @@ export default function AskPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+    {split && <aside aria-label="Your document" className="sticky top-20 h-[calc(100dvh-7rem)] overflow-hidden rounded-lg border border-border bg-surface">{pane}</aside>}
+    {viewer && !desktop && <DocSheet open onOpenChange={(o) => !o && setViewer(null)}>{pane}</DocSheet>}
     </div>
   );
 }

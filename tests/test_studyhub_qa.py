@@ -514,10 +514,11 @@ def test_the_cloud_needs_this_users_consent(world, monkeypatch):
     assert "not allowed cloud" in cloud_reason(world, monkeypatch, consent=False, OPENROUTER_API_KEY="k")
 
 
-def test_the_cloud_model_must_be_on_the_allow_list(world, monkeypatch):
-    why = cloud_reason(world, monkeypatch, OPENROUTER_API_KEY="k", SLICE_MODEL="anthropic/claude-opus-9")
-    assert "allow-list" in why
-    assert cloud_reason(world, monkeypatch, OPENROUTER_API_KEY="k", SLICE_MODEL="mistralai/mistral-small-3.2-24b-instruct") is None
+def test_the_cloud_needs_at_least_one_model_on_the_allow_list(world, monkeypatch):
+    monkeypatch.setenv("STUDYHUB_CLOUD_MODELS", "")
+    assert "allow-list" in cloud_reason(world, monkeypatch, OPENROUTER_API_KEY="k")
+    monkeypatch.setenv("STUDYHUB_CLOUD_MODELS", "qwen/qwen3.7-flash")
+    assert cloud_reason(world, monkeypatch, OPENROUTER_API_KEY="k") is None
 
 
 def test_daily_token_caps_block_the_cloud(world, monkeypatch):
@@ -556,16 +557,48 @@ def test_the_credit_lookup_is_cached_and_survives_failures():
     assert len(calls) == 2
 
 
-def test_build_tiers_orders_local_first_and_caps_cloud_output_at_1200(world, monkeypatch):
+def _cloud_ready(world, monkeypatch):
     store, repo, alice, *_ = world
     repo.set_cloud_consent(alice, True)
     monkeypatch.setenv("OPENROUTER_API_KEY", "k")
-    monkeypatch.setenv("SLICE_MODEL", "inclusionai/ling-3.0-flash")
     monkeypatch.setenv("SLICE_MAX_TOKENS", "9000")
+    return store, repo, alice
+
+
+def _tiers(world, monkeypatch, task="answer"):
+    store, repo, alice = _cloud_ready(world, monkeypatch)
+    return models.build_tiers(store.db, repo.get_user(alice), base=slice_config.settings(reload=False), credit=lambda k: None, task=task)
+
+
+def test_build_tiers_puts_the_cloud_first_by_default_with_the_local_model_as_backup_and_caps_output_at_1200(world, monkeypatch):
+    tiers, notes = _tiers(world, monkeypatch)
+    assert [t.name for t in tiers] == ["cloud", "cloud", "local"] and notes == []
+    assert [t.model for t in tiers[:2]] == ["qwen/qwen3.7-flash", "openai/gpt-oss-120b"]              # the answer order, at most two cloud models
+    assert all(t.settings.max_tokens == 1200 and t.on_usage is not None and t.settings.llm_provider == "openrouter" for t in tiers[:2])
+    assert tiers[2].settings.llm_provider == "ollama"
+
+
+def test_each_kind_of_work_gets_its_own_cloud_models_and_simple_checks_go_local_first(world, monkeypatch):
+    write, _ = _tiers(world, monkeypatch, "write")
+    assert [t.model for t in write[:2]] == ["openai/gpt-oss-120b", "qwen/qwen3.7-flash"] and write[-1].name == "local"
+    plan, _ = _tiers(world, monkeypatch, "plan")
+    assert plan[0].model == "qwen/qwen3.7-flash" and plan[1].model == "deepseek/deepseek-v4-flash-0731"
+    simple, _ = _tiers(world, monkeypatch, "simple")
+    assert [t.name for t in simple] == ["local", "cloud", "cloud"] and simple[1].model == "inclusionai/ling-3.0-flash"
+    monkeypatch.setenv("STUDYHUB_PRIMARY", "local")
+    assert [t.name for t in _tiers(world, monkeypatch)[0]] == ["local", "cloud", "cloud"]              # the old order is one setting away
+    monkeypatch.delenv("STUDYHUB_PRIMARY")
+    monkeypatch.setenv("STUDYHUB_CLOUD_MODELS", "z-ai/glm-5.3-flash,inclusionai/ling-3.0-flash")        # only allow-listed models are ever used
+    assert [t.model for t in _tiers(world, monkeypatch)[0][:2]] == ["z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash"]
+    monkeypatch.setenv("STUDYHUB_CLOUD_ORDER_ANSWER", "inclusionai/ling-3.0-flash,not/allowed")
+    assert _tiers(world, monkeypatch)[0][0].model == "inclusionai/ling-3.0-flash"
+
+
+def test_without_consent_or_a_key_only_the_local_model_is_used_even_though_the_cloud_is_primary(world, monkeypatch):
+    store, repo, alice, *_ = world
+    monkeypatch.setenv("OPENROUTER_API_KEY", "k")
     tiers, notes = models.build_tiers(store.db, repo.get_user(alice), base=slice_config.settings(reload=False), credit=lambda k: None)
-    assert [t.name for t in tiers] == ["local", "cloud"] and notes == []
-    assert tiers[1].settings.max_tokens == 1200 and tiers[1].on_usage is not None
-    assert tiers[0].settings.llm_provider == "ollama" and tiers[1].settings.llm_provider == "openrouter"
+    assert [t.name for t in tiers] == ["local"] and any("not allowed cloud" in n for n in notes)          # no consent: nothing leaves the computer
 
 
 def test_build_tiers_says_why_the_cloud_is_missing_and_can_switch_local_off(world, monkeypatch):

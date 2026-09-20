@@ -1,6 +1,10 @@
 """Which models may answer a question, in what order, and under what limits.
 
-Order: the local Ollama model first; the cloud (OpenRouter) only if the local one fails AND every guard below allows it:
+Order (the default, STUDYHUB_PRIMARY=cloud): the cloud (OpenRouter) first, the local Ollama model as the backup. The cloud is used only
+when EVERY guard below allows it; otherwise the local model answers alone. Which cloud models, and how many, depends on the task:
+real work (answers with quotes, writing questions, planning) goes to the stronger models first; simple checks (the independent
+reader that double-checks a practice question) go to the local model first, because they are cheap and do not need the cloud.
+STUDYHUB_PRIMARY=local restores "local first, cloud only if it fails".
 
   * an API key exists (in .env, never in the repo),
   * THIS user ticked "allow cloud" (their retrieved passages leave the computer on that path),
@@ -31,6 +35,17 @@ CLOUD_TOKEN_CAP = 1200
 DEFAULT_ALLOWED = ("inclusionai/ling-3.0-flash,mistralai/mistral-small-3.2-24b-instruct,openai/gpt-oss-120b,"
                    "deepseek/deepseek-v4-flash-0731,z-ai/glm-5.3-flash,qwen/qwen3.7-flash")
 MIN_CREDIT_USD = 1.0
+MAX_CLOUD_TIERS = 2            # at most two cloud models are tried for one task: the credit is small and shared
+
+# Preferred cloud models per task, best fit first. Only models on the allow-list are ever used. Override one with
+# STUDYHUB_CLOUD_ORDER_<TASK>=model,model (for example STUDYHUB_CLOUD_ORDER_WRITE).
+CLOUD_ORDER = {
+    "answer": ["qwen/qwen3.7-flash", "openai/gpt-oss-120b", "deepseek/deepseek-v4-flash-0731", "z-ai/glm-5.3-flash", "mistralai/mistral-small-3.2-24b-instruct", "inclusionai/ling-3.0-flash"],
+    "write": ["openai/gpt-oss-120b", "qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash-0731", "mistralai/mistral-small-3.2-24b-instruct", "z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash"],
+    "plan": ["qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash-0731", "z-ai/glm-5.3-flash", "openai/gpt-oss-120b", "mistralai/mistral-small-3.2-24b-instruct", "inclusionai/ling-3.0-flash"],
+    "simple": ["inclusionai/ling-3.0-flash", "mistralai/mistral-small-3.2-24b-instruct", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-0731", "openai/gpt-oss-120b"],
+}
+LOCAL_FIRST_TASKS = {"simple"}
 _credit_cache: dict[str, tuple[float, float | None]] = {}
 
 
@@ -47,6 +62,14 @@ class Tier:
 
 def allowed_cloud_models() -> list[str]:
     return [m.strip() for m in os.environ.get("STUDYHUB_CLOUD_MODELS", DEFAULT_ALLOWED).split(",") if m.strip()]
+
+
+def cloud_models_for(task: str) -> list[str]:
+    """Allowed cloud models for a task, in order of preference."""
+    allowed = allowed_cloud_models()
+    custom = [m.strip() for m in os.environ.get(f"STUDYHUB_CLOUD_ORDER_{task.upper()}", "").split(",") if m.strip()]
+    ordered = [m for m in custom + CLOUD_ORDER.get(task, CLOUD_ORDER["answer"]) if m in allowed]
+    return list(dict.fromkeys(ordered)) + [m for m in allowed if m not in ordered]
 
 
 def daily_cap(scope: str) -> int:
@@ -83,8 +106,8 @@ def cloud_block_reason(db, user: dict, s: Settings, *, credit: Callable[[str], f
         return "no OpenRouter key is configured"
     if not user.get("cloud_consent"):
         return "you have not allowed cloud models (Account page)"
-    if s.model not in allowed_cloud_models():
-        return f"the configured cloud model {s.model} is not on the allow-list"
+    if not allowed_cloud_models():
+        return "no cloud model is on the allow-list"
     day = today()
     if repo.cloud_tokens_today(day, user["id"]) >= daily_cap("user"):
         return "your daily cloud token limit has been reached"
@@ -97,13 +120,14 @@ def cloud_block_reason(db, user: dict, s: Settings, *, credit: Callable[[str], f
 
 
 def build_tiers(db, user: dict, *, base: Settings | None = None,
-                credit: Callable[[str], float | None] | None = None) -> tuple[list[Tier], list[str]]:
-    """(tiers in order of use, notes about tiers that were left out)."""
+                credit: Callable[[str], float | None] | None = None, task: str = "answer") -> tuple[list[Tier], list[str]]:
+    """(tiers in order of use, notes about tiers that were left out). `task` picks the cloud models and the order (see CLOUD_ORDER)."""
     s = base or slice_config.settings()
     notes: list[str] = []
-    tiers: list[Tier] = []
+    local: list[Tier] = []
+    cloud: list[Tier] = []
     if os.environ.get("STUDYHUB_LOCAL_MODEL", "on").lower() != "off":
-        tiers.append(Tier("local", f"{s.ollama_model} (on this computer)", s.ollama_model,
+        local.append(Tier("local", f"{s.ollama_model} (on this computer)", s.ollama_model,
                           OllamaProvider(s.ollama_base_url, s.ollama_model, s.ollama_fallback_model, s.ollama_num_ctx,
                                          float(s.ollama_timeout)),
                           dataclasses.replace(s, llm_provider="ollama")))
@@ -111,10 +135,12 @@ def build_tiers(db, user: dict, *, base: Settings | None = None,
         notes.append("the local model is switched off (STUDYHUB_LOCAL_MODEL=off)")
     why = cloud_block_reason(db, user, s, credit=credit)
     if why is None:
-        repo, uid, day, model = Repo(db), user["id"], today(), s.model
-        tiers.append(Tier("cloud", f"{model} (OpenRouter)", model, OpenRouterProvider(),
-                          dataclasses.replace(s, llm_provider="openrouter", max_tokens=min(s.max_tokens, CLOUD_TOKEN_CAP)),
-                          on_usage=lambda n: repo.record_cloud_usage(uid, day, model, n)))
+        repo, uid, day = Repo(db), user["id"], today()
+        for model in cloud_models_for(task)[:MAX_CLOUD_TIERS]:
+            cloud.append(Tier("cloud", f"{model} (OpenRouter)", model, OpenRouterProvider(),
+                              dataclasses.replace(s, llm_provider="openrouter", model=model, max_tokens=min(s.max_tokens, CLOUD_TOKEN_CAP)),
+                              on_usage=lambda n, model=model: repo.record_cloud_usage(uid, day, model, n)))
     else:
         notes.append(f"cloud not used: {why}")
-    return tiers, notes
+    cloud_first = os.environ.get("STUDYHUB_PRIMARY", "cloud").lower() != "local" and task not in LOCAL_FIRST_TASKS
+    return (cloud + local if cloud_first else local + cloud), notes

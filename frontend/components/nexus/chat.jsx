@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Bookmark, BookmarkCheck, CheckCircle2, Download, ExternalLink, Sparkles, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, CheckCircle2, Download, ExternalLink, FileSearch, NotebookPen, Sparkles, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getQuestion, keys } from "@/lib/queries";
 import { cn, friendlyError, plural } from "@/lib/utils";
@@ -54,7 +54,16 @@ export function Typing({ what = "Reading your materials", createdAt }) {
   );
 }
 
-function Evidence({ qid, list, open, setOpen }) {
+function ViewButton({ onView, x, label = "View in the document" }) {
+  if (!onView || !x.document_id) return null;
+  return (
+    <button type="button" onClick={() => onView({ docId: x.document_id, page: x.page_start, quote: x.quote, passageId: x.passage_id })} className="mt-1 inline-flex min-h-11 items-center gap-1 text-xs font-semibold text-link underline">
+      <FileSearch className="h-4 w-4" aria-hidden="true" /> {label}
+    </button>
+  );
+}
+
+function Evidence({ qid, list, open, setOpen, onView }) {
   return (
     <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)} className="mt-3 rounded-lg border border-border bg-background">
       <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-semibold">Evidence · {plural(list.length, "source")}</summary>
@@ -65,6 +74,7 @@ function Evidence({ qid, list, open, setOpen }) {
               <p className="break-anywhere text-xs text-muted"><b>[{i + 1}]</b> <Where x={x} /></p>
               <blockquote className="break-anywhere my-2 border-l-4 border-primary pl-3 text-sm">{x.quote}</blockquote>
               <p className="flex items-center gap-1 text-xs text-success"><CheckCircle2 className="h-4 w-4 shrink-0" aria-hidden="true" /> These exact words were found in your material.</p>
+              <ViewButton onView={onView} x={x} />
             </div>
           </li>
         ))}
@@ -73,7 +83,7 @@ function Evidence({ qid, list, open, setOpen }) {
   );
 }
 
-function AnswerBody({ q }) {
+function AnswerBody({ q, onView }) {
   const claims = q.claims ?? [];
   const { list, numberOf } = numberCitations(claims);
   const [open, setOpen] = useState(false);
@@ -106,7 +116,7 @@ function AnswerBody({ q }) {
         ))}
       </div>
       {q.dropped > 0 && <p className="mt-2 text-xs text-muted">{plural(q.dropped, "other statement")} could not be verified against your materials and {q.dropped === 1 ? "was" : "were"} left out.</p>}
-      {list.length > 0 && <Evidence qid={q.id} list={list} open={open} setOpen={setOpen} />}
+      {list.length > 0 && <Evidence qid={q.id} list={list} open={open} setOpen={setOpen} onView={onView} />}
       {q.explanation && (
         <details className="mt-2 rounded-lg border border-border bg-background">
           <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-semibold">Explanation, step by step</summary>
@@ -120,7 +130,7 @@ function AnswerBody({ q }) {
   );
 }
 
-function PassagesBody({ q }) {
+function PassagesBody({ q, onView }) {
   const sources = q.sources ?? [];
   return (
     <div>
@@ -133,6 +143,7 @@ function PassagesBody({ q }) {
               <li key={i} className="rounded-md border border-border bg-surface p-3">
                 <p className="break-anywhere text-xs text-muted"><Where x={s} />{s.matched.length > 0 && <> · matched: {s.matched.join(", ")}</>}</p>
                 <p className="break-anywhere mt-1 whitespace-pre-wrap text-sm">{s.text}</p>
+                <ViewButton onView={onView} x={{ ...s, quote: s.text.slice(0, 80) }} />
               </li>
             ))}
           </ul>
@@ -169,7 +180,7 @@ function downloadText(name, text) {
 }
 
 /** One exchange: the student's question, then Nexus's reply (typing, answer with evidence, or an honest "not answered"). */
-export function ChatTurn({ subjectId, item, onDelete }) {
+export function ChatTurn({ subjectId, item, onDelete, onView }) {
   const qc = useQueryClient();
   const { data: q, error } = useQuery({
     queryKey: keys.question(subjectId, item.id),
@@ -179,6 +190,11 @@ export function ChatTurn({ subjectId, item, onDelete }) {
   const feedback = useMutation({
     mutationFn: (value) => api(`/subjects/${subjectId}/questions/${item.id}/feedback`, { method: "POST", json: { value } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: keys.question(subjectId, item.id) }); toast.success("Thanks, noted"); },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+  const toNote = useMutation({
+    mutationFn: () => api(`/subjects/${subjectId}/notes/from-answers`, { method: "POST", json: { doubt_ids: [item.id] } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: keys.notes(subjectId) }); toast.success("Saved to your notes, with its sources"); },
     onError: (e) => toast.error(friendlyError(e)),
   });
   const bookmark = useMutation({
@@ -195,7 +211,7 @@ export function ChatTurn({ subjectId, item, onDelete }) {
         <Typing createdAt={item.created_at} />
       ) : (
         <Bubble>
-          {q.status === "answered" ? <AnswerBody q={q} /> : <PassagesBody q={q} />}
+          {q.status === "answered" ? <AnswerBody q={q} onView={onView} /> : <PassagesBody q={q} onView={onView} />}
           <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border pt-2">
             <StatusBadge status={q.status} kind={q.kind} />
             {q.status === "answered" && (
@@ -206,6 +222,9 @@ export function ChatTurn({ subjectId, item, onDelete }) {
             )}
             <span className="ml-auto flex items-center">
               <button type="button" onClick={() => bookmark.mutate(!q.saved)} aria-pressed={!!q.saved} aria-label={q.saved ? "Remove from saved answers" : "Save this answer"} className={cn("inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2", q.saved && "bg-accent text-link")}>{q.saved ? <BookmarkCheck className="h-4 w-4" aria-hidden="true" /> : <Bookmark className="h-4 w-4" aria-hidden="true" />}</button>
+              {(q.status === "answered" || q.status === "extractive") && (
+                <button type="button" onClick={() => toNote.mutate()} disabled={toNote.isPending} aria-label="Save this answer to my notes" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2 disabled:opacity-60"><NotebookPen className="h-4 w-4" aria-hidden="true" /></button>
+              )}
               <button type="button" onClick={() => downloadText(`nexus-answer-${item.id}.md`, answerMarkdown(q))} aria-label="Download this answer with its sources" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><Download className="h-4 w-4" aria-hidden="true" /></button>
               <Link href={`/subjects/${subjectId}/ask/${item.id}`} aria-label="Open full view" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><ExternalLink className="h-4 w-4" aria-hidden="true" /></Link>
               <button type="button" onClick={() => onDelete(item)} aria-label="Delete this question" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><Trash2 className="h-4 w-4" aria-hidden="true" /></button>

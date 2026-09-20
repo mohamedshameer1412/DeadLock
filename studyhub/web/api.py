@@ -10,13 +10,14 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 from contextlib import contextmanager
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from studyhub import auth, cards, explain, ingest, insights, mcq, models, qa, retrieval, settings
+from studyhub import auth, cards, digest, roadmap as roadmapmod, explain, ingest, insights, mail_templates, mailer, mcq, models, otp, qa, retrieval, settings, webfetch
 from studyhub import db as studydb
 from studyhub.repo import Repo, SubjectError
 
@@ -135,7 +136,7 @@ def register(request: Request, body: Credentials):
 def login(request: Request, body: Credentials):
     if not _pre_ok(request):
         return err(403, "csrf", "The request was refused. Reload the page and try again.")
-    ip = request.client.host if request.client else ""
+    ip = _ip(request)
     with _db() as db:
         try:
             uid = auth.authenticate(db, body.username, body.password, ip=ip)
@@ -168,7 +169,7 @@ def _counts(db, subject_id: int) -> dict:
 
 
 def _subject_json(db, s: dict) -> dict:
-    return {"id": s["id"], "name": s["name"], "description": s["description"], "created_at": iso(s["created_at"]),
+    return {"id": s["id"], "name": s["name"], "description": s["description"], "created_at": iso(s["created_at"]), "level": s.get("level"),
             "counts": _counts(db, s["id"])}
 
 
@@ -217,6 +218,22 @@ def update_subject(request: Request, subject_id: str, body: SubjectBody):
         return _subject_json(db, ctx.repo.get_subject(ctx.uid, ctx.subject["id"]))
 
 
+class LevelBody(BaseModel):
+    level: str
+
+
+@router.put("/subjects/{subject_id}/level")
+def set_level(request: Request, subject_id: str, body: LevelBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        if body.level not in ("new", "intermediate", "professional"):
+            return err(400, "invalid", "Choose new learner, intermediate or professional.")
+        db.execute("UPDATE subjects SET level=? WHERE id=? AND user_id=?", (body.level, ctx.subject["id"], ctx.uid))
+        return {"level": body.level}
+
+
 @router.delete("/subjects/{subject_id}", status_code=204)
 def delete_subject(request: Request, subject_id: str):
     with _db() as db:
@@ -251,6 +268,35 @@ def upload_material(request: Request, subject_id: str, file: UploadFile = File(.
         try:
             r = ingest.ingest(db, ctx.uid, ctx.subject["id"], file.filename or "upload", data)
         except ingest.IngestError as e:
+            return err(400, "upload_refused", str(e))
+        doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], r.document_id)
+        return JSONResponse({"document": _doc_json(doc), "duplicate": r.duplicate}, status_code=200 if r.duplicate else 201)
+
+
+class UrlBody(BaseModel):
+    url: str = Field(max_length=2000)
+
+
+@router.post("/subjects/{subject_id}/materials/url", status_code=201)
+def add_web_page(request: Request, subject_id: str, body: UrlBody):
+    """Add a web page as material: fetched by the server under the rules in webfetch.py, turned into text, then treated like any upload."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        now = time.time()
+        recent = otp._events(db, "url_user", str(ctx.uid), 3600, now)
+        if len(recent) >= 20:
+            return _limited(otp.RateLimited(recent[-20] + 3600 - now))
+        otp._note(db, "url_user", str(ctx.uid), now)
+        try:
+            final, ctype, raw, charset = webfetch.fetch(body.url)
+            title, text = webfetch.html_to_text(raw, charset, ctype)
+            if len(text) < 200:
+                return err(400, "upload_refused", "That page has too little readable text to study from.")
+            name = ((title or urllib.parse.urlsplit(final).hostname or "web page")[:150]) + ".txt"
+            r = ingest.ingest(db, ctx.uid, ctx.subject["id"], name, text.encode("utf-8"), source_url=final)
+        except (webfetch.FetchError, ingest.IngestError) as e:
             return err(400, "upload_refused", str(e))
         doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], r.document_id)
         return JSONResponse({"document": _doc_json(doc), "duplicate": r.duplicate}, status_code=200 if r.duplicate else 201)
@@ -315,7 +361,7 @@ class FeedbackBody(BaseModel):
 
 
 def _citation_json(x: dict) -> dict:
-    return {"passage_id": x["chunk_id"], "quote": x["quote"], "document": x["doc_title"], "heading_path": x["heading_path"],
+    return {"passage_id": x["chunk_id"], "document_id": x.get("document_id"), "quote": x["quote"], "document": x["doc_title"], "heading_path": x["heading_path"],
             "page_start": x["page_start"], "page_end": x["page_end"]}
 
 
@@ -328,7 +374,7 @@ def _question_json(ctx: Ctx, d: dict, detail: bool) -> dict:
     out.update({
         "model": d["model"], "reason": d["reason"], "kind": d["kind"], "dropped": d["dropped"], "explanation": d["explanation"],
         "claims": [{"text": c["text"], "citations": [_citation_json(x) for x in c["citations"]]} for c in d["claims"]],
-        "sources": [{"passage_id": s["chunk_id"], "document": s["doc_title"], "heading_path": s["heading_path"], "page_start": s["page_start"],
+        "sources": [{"passage_id": s["chunk_id"], "document_id": s.get("document_id"), "document": s["doc_title"], "heading_path": s["heading_path"], "page_start": s["page_start"],
                      "page_end": s["page_end"], "text": s["text"], "matched": s["matched"]} for s in d["sources"]],
         "verification": explain.verification_rows(d["claims"], d["dropped"], trace) if d["status"] == "answered" else [],
         "steps": [{"by": s["by"], "text": explain.step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace]})
@@ -404,6 +450,7 @@ def delete_question(request: Request, subject_id: str, question_id: str):
 class McqJobBody(BaseModel):
     topic_id: int | None = None
     count: int = mcq.DEFAULT_COUNT
+    purpose: str = "practice"                # "diagnostic" = ten questions spread over the topics and over easy/medium/hard
 
 
 def _mcq_json(m: dict) -> dict:
@@ -419,6 +466,10 @@ def create_mcq_job(request: Request, subject_id: str, body: McqJobBody):
         if bad:
             return bad
         ctx.repo.expire_pending_mcq_jobs(3600)
+        if body.purpose not in ("practice", "diagnostic"):
+            return err(400, "invalid", "The purpose must be practice or diagnostic.")
+        if body.purpose == "diagnostic":
+            body.topic_id, body.count = None, mcq.MAX_COUNT
         topics = {t["id"]: t for t in ctx.repo.list_topics(ctx.uid, ctx.subject["id"]) if t["chunks"]}
         if not 1 <= body.count <= mcq.MAX_COUNT:
             return err(400, "invalid", f"Choose a number of questions from 1 to {mcq.MAX_COUNT}.")
@@ -430,7 +481,7 @@ def create_mcq_job(request: Request, subject_id: str, body: McqJobBody):
             return err(429, "too_many_pending", "Questions are already being written for you. Wait for that to finish.")
         scope = f"{body.count} question{'s' if body.count != 1 else ''} from " + (
             f'the topic "{topics[body.topic_id]["path"]}"' if body.topic_id else "the whole subject")
-        job = ctx.repo.create_mcq_job(ctx.uid, ctx.subject["id"], body.topic_id, scope, body.count)
+        job = ctx.repo.create_mcq_job(ctx.uid, ctx.subject["id"], body.topic_id, scope, body.count, body.purpose)
     _app()._submit_mcq(job, ctx.uid)
     return JSONResponse({"id": job, "status": "pending"}, status_code=202)
 
@@ -448,7 +499,7 @@ def get_mcq_job(request: Request, subject_id: str, job_id: str):
         done = job["status"] != "pending"
         items = ctx.repo.list_mcq(ctx.uid, ctx.subject["id"], job_id=job["id"]) if done else []
         trace = ctx.repo.mcq_trace(ctx.uid, ctx.subject["id"], job["id"]) if done else []
-        return {"id": job["id"], "status": job["status"], "scope": job["scope"], "requested": job["requested"], "produced": job["produced"],
+        return {"id": job["id"], "purpose": job.get("purpose") or "practice", "status": job["status"], "scope": job["scope"], "requested": job["requested"], "produced": job["produced"],
                 "rejected": job["rejected"], "reason": job["reason"], "model": job["model"], "tier": job["tier"],
                 "questions": [_mcq_json(m) for m in items],
                 "steps": [{"by": s["by"], "text": explain.mcq_step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace]}
@@ -499,8 +550,12 @@ def account(request: Request):
         if bad:
             return bad
         s = models.slice_config.settings(reload=False)
+        row = db.execute("SELECT email, email_verified, weekly_email, last_digest_at FROM users WHERE id=?", (ctx.uid,)).fetchone()
+        pending = db.execute("SELECT email FROM email_otps WHERE user_id=? AND purpose='verify' AND consumed_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1", (ctx.uid, time.time())).fetchone()
         return {"user": _user_json(ctx.user), "key_configured": bool(s.api_key),
-                "allowed_models": models.allowed_cloud_models() if s.api_key else []}
+                "allowed_models": models.allowed_cloud_models() if s.api_key else [],
+                "email": {"address": row["email"] if row["email_verified"] else None, "verified": bool(row["email_verified"]), "pending": pending["email"] if pending else None,
+                          "weekly": bool(row["weekly_email"]), "last_digest_at": iso(row["last_digest_at"]), "can_send": mailer.configured() or mailer.debug_outbox()}}
 
 
 @router.put("/account/cloud")
@@ -522,6 +577,7 @@ class QuizStartBody(BaseModel):
     topic_id: int | None = None
     mode: str = "practice"                                   # "practice" | "assessment"
     kind: str = "standard"                                   # "standard" | "diagnostic" | "revision"
+    job_id: int | None = None                                # a diagnostic made from one generation job
 
 
 class QuizAnswerBody(BaseModel):
@@ -591,6 +647,12 @@ def quiz_start(request: Request, subject_id: str, body: QuizStartBody):
             items = [i for i in items if i["id"] in wrong_ids or i["topic_id"] in shaky]
             if not items:
                 return err(400, "nothing_to_revise", "Nothing to revise yet. Take a quiz first; the questions you miss are collected here.")
+        elif body.kind == "diagnostic" and body.job_id is not None:      # the ten questions written for this student's diagnostic
+            if ctx.repo.get_mcq_job(ctx.uid, sid, body.job_id) is None:
+                return err(404, "not_found", "Not found.")
+            items = ctx.repo.list_mcq(ctx.uid, sid, job_id=body.job_id)
+            if not items:
+                return err(400, "no_questions", "No questions were written for that diagnostic.")
         elif body.kind == "diagnostic":        # a short placement test: up to two questions from every topic
             per: dict = {}
             for i in items:
@@ -718,7 +780,8 @@ def quiz_result(request: Request, subject_id: str, attempt_id: str):
         events = ctx.repo.proctoring_summary(ctx.uid, sid, att["id"]).get("event_counts", {})
         ended = db.execute("SELECT details_json FROM quiz_proctoring_events WHERE attempt_id=? AND event_type='auto_submit' ORDER BY id DESC LIMIT 1", (att["id"],)).fetchone()
         ended_reason = END_REASONS.get(json.loads(ended["details_json"]).get("reason")) if ended else None
-        return {"attempt": _attempt_json(att), "ended_reason": ended_reason, "skipped": len(rows) - len(answered),
+        diag = insights.diagnosis(db, ctx.uid, sid, att["id"], ctx.subject.get("level")) if (att.get("kind") == "diagnostic") else None
+        return {"attempt": _attempt_json(att), "diagnosis": diag, "ended_reason": ended_reason, "skipped": len(rows) - len(answered),
                 "answers": [{"question": r["question"], "topic": r.get("topic_name") or r.get("topic_path") or "", "options": r["options"],
                              "chosen_index": r["chosen_index"], "answer_index": r["answer_index"], "correct": bool(r.get("is_correct")),
                              "explanation": r.get("explanation") or "", "backtrack": r.get("backtrack_from") is not None} for r in answered],
@@ -963,7 +1026,14 @@ class DeleteAccountBody(BaseModel):
 
 
 def _ip(request: Request) -> str:
-    return request.client.host if request.client else ""
+    """The caller's address. Behind our own Next.js proxy (loopback) it is the LAST X-Forwarded-For entry, the one the proxy itself added
+    (earlier entries can be forged by the caller); anything else uses the connection's address."""
+    host = request.client.host if request.client else ""
+    if host in ("127.0.0.1", "::1"):
+        fwd = request.headers.get("x-forwarded-for", "")
+        if fwd:
+            return fwd.split(",")[-1].strip()[:64]
+    return host
 
 
 @router.post("/account/password")
@@ -1005,6 +1075,7 @@ def export_data(request: Request):
                 "questions_asked": rows("SELECT question, status, feedback, saved, created_at FROM doubts WHERE subject_id=? AND user_id=? ORDER BY id", sid, uid),
                 "practice_questions": rows("SELECT topic_path, question, options, answer_index, explanation, quote FROM mcq_items WHERE subject_id=? ORDER BY id", sid),
                 "quizzes": rows("SELECT id, mode, kind, started_at, finished_at, correct_answers, incorrect_answers FROM quiz_attempts WHERE subject_id=? AND user_id=? ORDER BY id", sid, uid),
+                "notes": rows("SELECT title, body, source, created_at, updated_at FROM notes WHERE subject_id=? AND user_id=? ORDER BY id", sid, uid),
                 "quiz_answers": rows("SELECT aa.attempt_id, aa.item_id, aa.chosen_index, aa.is_correct, aa.response_time, aa.answered_at FROM attempt_answers aa "
                                      "JOIN quiz_attempts qa ON qa.id=aa.attempt_id WHERE qa.subject_id=? AND qa.user_id=? AND aa.answered_at IS NOT NULL ORDER BY aa.id", sid, uid)})
         data = {"exported_at": iso(time.time()), "account": {"username": ctx.user["username"], "cloud_consent": bool(ctx.user["cloud_consent"])}, "subjects": subjects}
@@ -1145,3 +1216,409 @@ def quiz_finish(request: Request, subject_id: str, attempt_id: str):
         if att["is_active"]:
             _app().scoring.finish_attempt(db, ctx.uid, att["id"])
         return {"ok": True}
+
+
+# ------------------------------------------------------------------------------------- original file (viewer)
+
+_FILE_TYPES = {"pdf": ("application/pdf", "inline"), "txt": ("text/plain; charset=utf-8", "inline"),
+               "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "attachment")}
+
+
+@router.get("/subjects/{subject_id}/materials/{document_id}/file")
+def material_file(request: Request, subject_id: str, document_id: str):
+    """The uploaded original, for the viewer. Only its owner; a PDF or text file is shown in the page, a Word file is downloaded."""
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], _int(document_id) or -1)
+        if doc is None or doc["kind"] not in _FILE_TYPES:
+            return err(404, "not_found", "Not found.")
+        path = ingest._upload_path(ctx.uid, doc["sha256"])
+        if not path.exists():
+            return err(404, "not_found", "The original file is not stored.")
+        media, disposition = _FILE_TYPES[doc["kind"]]
+        name = "".join(c if c.isalnum() or c in " ._-" else "_" for c in (doc["source"] or "material"))[:120] or "material"
+        headers = {"Content-Disposition": f'{disposition}; filename="{name}"'}
+        if disposition == "inline":
+            headers["X-Nexus-Frameable"] = "1"
+        return Response(path.read_bytes(), media_type=media, headers=headers)
+
+
+# ------------------------------------------------------------------------------------------------------ notes
+
+class NoteBody(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+class FromAnswersBody(BaseModel):
+    doubt_ids: list[int]
+    title: str = ""
+
+
+def _note_json(n: dict, full: bool = True) -> dict:
+    out = {"id": n["id"], "title": n["title"], "source": n["source"], "doubt_id": n["doubt_id"], "created_at": iso(n["created_at"]),
+           "updated_at": iso(n["updated_at"]), "snippet": " ".join(n["body"].split())[:160]}
+    if full:
+        out["body"] = n["body"]
+    return out
+
+
+def _clean_note(body: NoteBody):
+    title, text = " ".join(body.title.split())[:200], body.body[:50000]
+    if not title and not text.strip():
+        return None, None
+    return title or " ".join(text.split())[:60] or "Untitled", text
+
+
+def _answer_markdown(d: dict) -> str:
+    """A chat answer as note text: the question, each statement with its [n] markers, then the exact quotes and where they are from."""
+    order: list[tuple] = []
+
+    def num(x):
+        key = (x["chunk_id"], x["quote"])
+        if key not in order:
+            order.append(key)
+        return order.index(key) + 1
+    lines = [f"## {d['question']}", ""]
+    if d["status"] == "answered":
+        for c in d["claims"]:
+            lines += [(c["text"] + " " + "".join(f"[{num(x)}]" for x in c["citations"])).strip(), ""]
+        srcs = {}
+        for c in d["claims"]:
+            for x in c["citations"]:
+                srcs[(x["chunk_id"], x["quote"])] = x
+        if srcs:
+            lines += ["**Sources**", ""]
+            for i, key in enumerate(order, start=1):
+                x = srcs[key]
+                where = x["doc_title"] + (f" · section: {x['heading_path']}" if x["heading_path"] else "") + (f" · page {x['page_start']}" if x["page_start"] is not None else "")
+                lines += [f"[{i}] > {x['quote']}", f"({where})", ""]
+    else:
+        lines += [d["reason"] or "Not answered from the materials.", ""]
+    return "\n".join(lines).rstrip() + "\n"
+
+
+@router.get("/subjects/{subject_id}/notes")
+def list_notes(request: Request, subject_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        return bad or {"notes": [_note_json(n, full=False) for n in ctx.repo.list_notes(ctx.uid, ctx.subject["id"])]}
+
+
+@router.get("/subjects/{subject_id}/notes/{note_id}")
+def get_note(request: Request, subject_id: str, note_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        n = ctx.repo.get_note(ctx.uid, ctx.subject["id"], _int(note_id) or -1)
+        return _note_json(n) if n else err(404, "not_found", "Not found.")
+
+
+@router.post("/subjects/{subject_id}/notes", status_code=201)
+def create_note(request: Request, subject_id: str, body: NoteBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        title, text = _clean_note(body)
+        if title is None:
+            return err(400, "invalid", "Write a title or some text first.")
+        nid = ctx.repo.add_note(ctx.uid, ctx.subject["id"], title, text)
+        return JSONResponse(_note_json(ctx.repo.get_note(ctx.uid, ctx.subject["id"], nid)), status_code=201)
+
+
+@router.post("/subjects/{subject_id}/notes/from-answers", status_code=201)
+def notes_from_answers(request: Request, subject_id: str, body: FromAnswersBody):
+    """Turn chat answers into one note. The text is built here from the stored answers, never taken from the browser."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        ids = list(dict.fromkeys(body.doubt_ids))[:20]
+        docs = [ctx.repo.get_doubt(ctx.uid, ctx.subject["id"], i) for i in ids]
+        if not ids or any(d is None for d in docs):
+            return err(404, "not_found", "Not found.")
+        docs = [d for d in docs if d["status"] in ("answered", "extractive")]
+        if not docs:
+            return err(400, "invalid", "Only answered questions can be saved as notes.")
+        title = " ".join(body.title.split())[:200] or (docs[0]["question"][:120] if len(docs) == 1 else f"Notes from chat, {time.strftime('%d %b %Y')}")
+        text = "\n".join(_answer_markdown(d) for d in docs)
+        nid = ctx.repo.add_note(ctx.uid, ctx.subject["id"], title, text, source="chat", doubt_id=docs[0]["id"] if len(docs) == 1 else None)
+        return JSONResponse(_note_json(ctx.repo.get_note(ctx.uid, ctx.subject["id"], nid)), status_code=201)
+
+
+@router.put("/subjects/{subject_id}/notes/{note_id}")
+def update_note(request: Request, subject_id: str, note_id: str, body: NoteBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        title, text = _clean_note(body)
+        if title is None:
+            return err(400, "invalid", "A note cannot be empty.")
+        if not ctx.repo.update_note(ctx.uid, ctx.subject["id"], _int(note_id) or -1, title, text):
+            return err(404, "not_found", "Not found.")
+        return _note_json(ctx.repo.get_note(ctx.uid, ctx.subject["id"], _int(note_id)))
+
+
+@router.delete("/subjects/{subject_id}/notes/{note_id}", status_code=204)
+def delete_note(request: Request, subject_id: str, note_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        if not ctx.repo.delete_note(ctx.uid, ctx.subject["id"], _int(note_id) or -1):
+            return err(404, "not_found", "Not found.")
+        return Response(status_code=204)
+
+
+# -------------------------------------------------------------------------------- password reset by e-mail code
+
+class ForgotBody(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class ResetBody(BaseModel):
+    email: str = Field(max_length=254)
+    code: str = Field(max_length=12)
+    new_password: str = Field(max_length=200)
+
+
+class EmailBody(BaseModel):
+    email: str = Field(max_length=254)
+
+
+class CodeBody(BaseModel):
+    code: str = Field(max_length=12)
+
+
+class WeeklyBody(BaseModel):
+    enabled: bool
+
+
+def _limited(r: "otp.RateLimited"):
+    mins = max(1, -(-r.retry_after // 60))
+    wait = f"{r.retry_after} seconds" if r.retry_after < 60 else f"{mins} minute{'s' if mins != 1 else ''}"
+    return JSONResponse({"error": {"code": "rate_limited", "message": f"Too many attempts. Please wait {wait} and try again.", "retry_after": r.retry_after}},
+                        status_code=429, headers={"Retry-After": str(r.retry_after)})
+
+
+def _mask(ip: str) -> str:
+    if ":" in ip:
+        return ":".join(ip.split(":")[:3]) + ":…"
+    parts = ip.split(".")
+    return ".".join(parts[:2]) + ".x.x" if len(parts) == 4 else "unknown"
+
+
+def _stamp() -> str:
+    return time.strftime("%d %b %Y, %H:%M UTC", time.gmtime())
+
+
+def _mail_code(purpose: str, email: str, code: str, ip: str) -> None:
+    subject, text, html = mail_templates.otp_email(purpose, code, int(otp.TTL // 60), _stamp(), _mask(ip))
+    mailer.send(email, subject, text, html)
+
+
+def _mail_changed(email: str, ip: str) -> None:
+    subject, text, html = mail_templates.password_changed_email(_stamp(), _mask(ip))
+    mailer.send(email, subject, text, html)
+
+
+@router.post("/auth/password/forgot", status_code=202)
+def forgot_password(request: Request, body: ForgotBody, background: BackgroundTasks):
+    """Send a one-time code to a verified address. The answer is the same whether or not the address has an account."""
+    if not _pre_ok(request):
+        return err(403, "csrf", "The request was refused. Reload the page and try again.")
+    email, ip = body.email.strip().lower(), _ip(request)
+    if not mailer.valid_address(email):
+        return err(400, "invalid", "Enter a valid email address.")
+    with _db() as db:
+        try:
+            otp.throttle_request(db, email, ip)
+        except otp.RateLimited as r:
+            return _limited(r)
+        row = db.execute("SELECT id FROM users WHERE lower(email)=? AND email_verified=1", (email,)).fetchone()
+        if row is not None:
+            background.add_task(_mail_code, "reset", email, otp.issue(db, "reset", email, row["id"], ip), ip)
+    return {"ok": True, "message": "If that address belongs to an account, a code is on its way. It expires in 10 minutes."}
+
+
+@router.post("/auth/password/reset")
+def reset_password(request: Request, body: ResetBody, background: BackgroundTasks):
+    if not _pre_ok(request):
+        return err(403, "csrf", "The request was refused. Reload the page and try again.")
+    email, ip = body.email.strip().lower(), _ip(request)
+    try:
+        auth.check_password(body.new_password, "")                 # length rules only, so a weak password never reveals whether the account exists
+    except auth.AuthError as e:
+        return err(400, "invalid", str(e))
+    with _db() as db:
+        try:
+            row = otp.check(db, "reset", email, body.code, ip)
+        except otp.RateLimited as r:
+            return _limited(r)
+        if row is None:
+            return err(400, "invalid_code", "That code is not right or has expired. Request a new one.")
+        user = db.execute("SELECT id, username FROM users WHERE id=?", (row["user_id"],)).fetchone()
+        try:
+            auth.set_password(db, user["id"], user["username"], body.new_password)
+        except auth.AuthError as e:
+            return err(400, "invalid", str(e))
+        db.execute("DELETE FROM sessions WHERE user_id=?", (user["id"],))      # every device is signed out
+        db.execute("DELETE FROM login_attempts WHERE username=?", (user["username"][:64],))
+        background.add_task(_mail_changed, email, ip)
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------------------------ e-mail address and weekly summary
+
+@router.put("/account/email")
+def set_email(request: Request, body: EmailBody, background: BackgroundTasks):
+    """Start verifying an address: a code is sent to it. Nothing changes until the code is entered."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        email, ip = body.email.strip().lower(), _ip(request)
+        if not mailer.valid_address(email):
+            return err(400, "invalid", "Enter a valid email address.")
+        try:
+            otp.throttle_request(db, email, ip)
+        except otp.RateLimited as r:
+            return _limited(r)
+        background.add_task(_mail_code, "verify", email, otp.issue(db, "verify", email, ctx.uid, ip), ip)
+        return {"ok": True, "pending": email}
+
+
+@router.post("/account/email/verify")
+def verify_email(request: Request, body: CodeBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        pend = db.execute("SELECT email FROM email_otps WHERE user_id=? AND purpose='verify' AND consumed_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1", (ctx.uid, time.time())).fetchone()
+        if pend is None:
+            return err(400, "invalid_code", "That code is not right or has expired. Request a new one.")
+        try:
+            row = otp.check(db, "verify", pend["email"], body.code, _ip(request), user_id=ctx.uid)
+        except otp.RateLimited as r:
+            return _limited(r)
+        if row is None:
+            return err(400, "invalid_code", "That code is not right or has expired. Request a new one.")
+        try:
+            db.execute("UPDATE users SET email=?, email_verified=1 WHERE id=?", (pend["email"], ctx.uid))
+        except Exception:
+            return err(409, "email_in_use", "That address is already linked to another account.")
+        return {"ok": True, "email": pend["email"]}
+
+
+@router.delete("/account/email", status_code=204)
+def remove_email(request: Request):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        db.execute("UPDATE users SET email=NULL, email_verified=0, weekly_email=0 WHERE id=?", (ctx.uid,))
+        return Response(status_code=204)
+
+
+@router.put("/account/weekly")
+def set_weekly(request: Request, body: WeeklyBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        ok = db.execute("UPDATE users SET weekly_email=? WHERE id=? AND email_verified=1", (int(body.enabled), ctx.uid)).rowcount
+        return {"weekly": body.enabled} if ok else err(400, "no_email", "Verify an email address first.")
+
+
+@router.post("/account/digest/send-now")
+def send_digest_now(request: Request):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        u = db.execute("SELECT id, username, email FROM users WHERE id=? AND email_verified=1", (ctx.uid,)).fetchone()
+        if u is None:
+            return err(400, "no_email", "Verify an email address first.")
+        now = time.time()
+        recent = otp._events(db, "digest_user", str(ctx.uid), 3600, now)
+        if len(recent) >= 3:
+            return _limited(otp.RateLimited(recent[-3] + 3600 - now))
+        otp._note(db, "digest_user", str(ctx.uid), now)
+        status = digest.send_to(db, dict(u), now)
+        if status in ("sent", "outbox"):
+            return {"ok": True, "status": status}
+        return err(503 if status == "unconfigured" else 502, "mail_failed", "The email could not be sent. Check the email settings on the server.")
+
+
+# ------------------------------------------------------------------------------------- skill gaps and the study roadmap
+
+class PlanProfileBody(BaseModel):
+    goal: str = Field(default="", max_length=300)
+    hours_per_week: float = Field(default=5.0, ge=1, le=40)
+    target_date: str | None = None
+
+
+def _roadmap_json(ctx) -> dict:
+    db, sid = ctx.db, ctx.subject["id"]
+    profile = roadmapmod.get_profile(db, ctx.uid, sid)
+    info = roadmapmod.skill_gaps(db, ctx.uid, sid, ctx.subject.get("level"))
+    plan = roadmapmod.build(info, sid, profile["hours_per_week"], profile["target_date"])
+    h = roadmapmod.plan_hash(info, profile)
+    status = profile["coach_status"]
+    if status == "pending" and (profile["coach_at"] or 0) < time.time() - 3600:
+        status = "failed"                                          # the worker went away before it finished
+    return {"subject": ctx.subject["name"], "level": ctx.subject.get("level"), "target": info["target"], "readiness": info["readiness"], "counts": info["counts"],
+            "source_totals": info["source_totals"], "source_labels": roadmapmod.SOURCE_LABELS, "gaps": info["gaps"], "roadmap": plan,
+            "profile": {"goal": profile["goal"], "hours_per_week": profile["hours_per_week"], "target_date": profile["target_date"]},
+            "coach": {"status": status, "text": profile["coach_text"] if profile["coach_text"] else roadmapmod.rule_coach(info, plan),
+                      "from_model": bool(profile["coach_text"]) and not (profile["coach_model"] or "").startswith("rules"), "model": profile["coach_model"], "stale": bool(profile["coach_text"]) and profile["coach_hash"] != h,
+                      "at": iso(profile["coach_at"])}}
+
+
+@router.get("/subjects/{subject_id}/roadmap")
+def get_roadmap(request: Request, subject_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        return bad or _roadmap_json(ctx)
+
+
+@router.put("/subjects/{subject_id}/roadmap/profile")
+def set_roadmap_profile(request: Request, subject_id: str, body: PlanProfileBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        date = (body.target_date or "").strip() or None
+        if date:
+            try:
+                ok = time.strptime(date, "%Y-%m-%d") and time.mktime(time.strptime(date, "%Y-%m-%d")) > time.time() - 86400
+            except ValueError:
+                ok = False
+            if not ok:
+                return err(400, "invalid", "Choose a date from today on.")
+        roadmapmod.save_profile(db, ctx.uid, ctx.subject["id"], " ".join(body.goal.split()), float(body.hours_per_week), date)
+        return _roadmap_json(ctx)
+
+
+@router.post("/subjects/{subject_id}/roadmap/coach", status_code=202)
+def ask_coach(request: Request, subject_id: str):
+    """Have the coach paragraph written (in the background). It sends topic names and scores only, never passages."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        now = time.time()
+        recent = otp._events(db, "coach_user", str(ctx.uid), 3600, now)
+        if len(recent) >= 6:
+            return _limited(otp.RateLimited(recent[-6] + 3600 - now))
+        otp._note(db, "coach_user", str(ctx.uid), now)
+        p = roadmapmod.get_profile(db, ctx.uid, ctx.subject["id"])
+        roadmapmod.save_profile(db, ctx.uid, ctx.subject["id"], p["goal"], p["hours_per_week"], p["target_date"])
+        db.execute("UPDATE study_plans SET coach_status='pending', coach_at=? WHERE subject_id=? AND user_id=?", (now, ctx.subject["id"], ctx.uid))
+    _app()._submit_task(_app()._process_coach, ctx.uid, ctx.subject["id"])
+    return JSONResponse({"status": "pending"}, status_code=202)

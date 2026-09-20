@@ -123,6 +123,13 @@ def change_password(db: sqlite3.Connection, user_id: int, username: str, current
     db.execute("UPDATE users SET pw_salt=?, pw_hash=?, scrypt_params=? WHERE id=?", (salt, _derive(new, salt, params), json.dumps(params), user_id))
 
 
+def set_password(db: sqlite3.Connection, user_id: int, username: str, new: str) -> None:
+    """Set a new password without asking for the old one (only after a verified e-mail code)."""
+    check_password(new, username)
+    salt, params = os.urandom(16), _params()
+    db.execute("UPDATE users SET pw_salt=?, pw_hash=?, scrypt_params=? WHERE id=?", (salt, _derive(new, salt, params), json.dumps(params), user_id))
+
+
 # ------------------------------------------------------------------ sessions
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ import { api, fetchSession } from "@/lib/api";
 import { getAccount, keys } from "@/lib/queries";
 import { friendlyError } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
+import { EmailSettings } from "@/components/nexus/email-settings";
 import { ErrorState, useLogout } from "@/components/nexus/shell";
 import { Alert, Button, Card, Checkbox, Dialog, DialogClose, DialogContent, DialogTrigger, Input, Label, Skeleton } from "@/components/ui/primitives";
 
@@ -91,14 +92,16 @@ export default function AccountPage() {
       <p className="text-sm text-muted">Signed in as <b>{data.user.username}</b></p>
       <Card className="mt-5">
         <h2 className="text-lg font-bold">Cloud models</h2>
-        <p className="mt-1 text-sm">Questions are answered by a model running on this computer first. If that fails, Nexus can ask a cloud model (OpenRouter) instead.</p>
+        <p className="mt-1 text-sm">If you allow it, Nexus asks a fast cloud model (OpenRouter) first, and uses the model on this computer as the backup when the cloud is unavailable or the shared credit runs low. Small checks always run on this computer.</p>
         <p className="mt-2 text-sm"><b>If you allow this, the passages found for your question (a few paragraphs, never your whole files) are sent to OpenRouter and the model provider.</b> If you do not, nothing ever leaves this computer.</p>
         <p className="mt-2 text-xs text-muted">Cloud key configured on the server: <b>{data.key_configured ? "yes" : "no"}</b>{data.allowed_models.length > 0 && <> · allowed models: {data.allowed_models.join(", ")}</>}</p>
         <label className="mt-4 flex min-h-11 cursor-pointer items-center gap-3">
-          <Checkbox aria-label="Allow cloud models as a fallback for my questions" checked={on} onCheckedChange={(checked) => { setLocal(!!checked); save.mutate(!!checked); }} />
-          <span className="text-sm font-semibold">Allow cloud models as a fallback for my questions</span>
+          <Checkbox aria-label="Use cloud models first, with this computer as the backup" checked={on} onCheckedChange={(checked) => { setLocal(!!checked); save.mutate(!!checked); }} />
+          <span className="text-sm font-semibold">Use cloud models (OpenRouter) first, with this computer as the backup</span>
         </label>
       </Card>
+
+      {data.email && <EmailSettings info={data.email} />}
 
       <ChangePassword />
 

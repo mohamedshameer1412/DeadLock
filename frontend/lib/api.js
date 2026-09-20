@@ -22,7 +22,11 @@ export async function fetchSession() {
 async function parse(res) {
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(res.status, data?.error?.code ?? "unknown", data?.error?.message ?? "Something went wrong. Please try again.");
+  if (!res.ok) {
+    const err = new ApiError(res.status, data?.error?.code ?? "unknown", data?.error?.message ?? "Something went wrong. Please try again.");
+    err.retry_after = data?.error?.retry_after; // seconds to wait, when the server is limiting requests
+    throw err;
+  }
   return data;
 }
 
@@ -69,4 +73,12 @@ export function uploadFile(path, file, onProgress) {
     form.append("file", file);
     xhr.send(form);
   });
+}
+
+/** Empties what the offline service worker saved of the signed-in person's data. Called on every log in and log out. */
+export function clearOfflineData() {
+  try {
+    navigator.serviceWorker?.controller?.postMessage("clear-data");
+    caches?.keys().then((ks) => ks.filter((k) => k.endsWith("-data")).forEach((k) => caches.delete(k)));
+  } catch {}
 }

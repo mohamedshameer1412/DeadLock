@@ -7,6 +7,7 @@ import { SECTIONS } from "@/components/nexus/nav-data";
 import { getSubject, keys } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { ErrorState } from "@/components/nexus/shell";
+import { LevelPrompt } from "@/components/nexus/level-prompt";
 import { Skeleton } from "@/components/ui/primitives";
 
 const TABS = SECTIONS;
@@ -47,7 +48,7 @@ export default function SubjectLayout({ children }) {
 
       {/* Phones: a bottom tab bar */}
       <nav aria-label="Subject sections" className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] sm:hidden">
-        <ul className="grid grid-cols-5">
+        <ul className="grid grid-cols-7">
           {TABS.map(({ slug, label, Icon }) => (
             <li key={slug}>
               <Link
@@ -62,7 +63,10 @@ export default function SubjectLayout({ children }) {
         </ul>
       </nav>
 
-      <div className="mt-6">{children}</div>
+      <div className="mt-6">
+        {/\/(materials|ask|notes|practice)$/.test(pathname) && <LevelPrompt subject={subject} />}
+        {children}
+      </div>
     </div>
   );
 }

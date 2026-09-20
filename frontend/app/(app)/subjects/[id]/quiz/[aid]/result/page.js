@@ -1,13 +1,50 @@
 "use client";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { CheckCircle2, XCircle } from "lucide-react";
+import { api } from "@/lib/api";
 import { getResult, keys } from "@/lib/queries";
 import { plural } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { ErrorState } from "@/components/nexus/shell";
-import { Alert, Card, Skeleton } from "@/components/ui/primitives";
+import { Alert, Badge, Button, Card, Skeleton } from "@/components/ui/primitives";
+
+const LEVEL = { new: "New learner", intermediate: "Intermediate", professional: "Professional" };
+const pc = (x) => Math.round(x * 100);
+
+/** What a diagnostic test concludes: accuracy at each difficulty, the level it suggests, and the strong and weak topics. */
+function DiagnosisCard({ d, subjectId }) {
+  const qc = useQueryClient();
+  const accept = useMutation({
+    mutationFn: () => api(`/subjects/${subjectId}/level`, { method: "PUT", json: { level: d.suggested } }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: keys.subject(subjectId) }); toast.success(`Your level is now ${LEVEL[d.suggested]}`); },
+  });
+  return (
+    <section aria-labelledby="diag-h" className="rounded-lg border-2 border-primary bg-surface p-4">
+      <h2 id="diag-h" className="text-lg font-bold">Your diagnostic conclusion</h2>
+      {d.suggested ? (
+        <p className="mt-2 flex flex-wrap items-center gap-2">Suggested level: <Badge tone="success">{LEVEL[d.suggested]}</Badge> <span className="text-sm text-muted">overall confidence <b>{pc(d.confidence)}%</b></span></p>
+      ) : <p className="mt-2 text-sm text-muted">Too few answers to suggest a level.</p>}
+      {d.note && <p className="mt-1 text-sm">{d.note}</p>}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        {["easy", "medium", "hard"].map((k) => (
+          <div key={k} className="rounded-md bg-surface-2 p-2"><p className="text-xs capitalize text-muted">{k} questions</p><p className="text-lg font-bold">{d.by_difficulty[k].correct} of {d.by_difficulty[k].answered}</p></div>
+        ))}
+      </div>
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div><h3 className="font-semibold text-success">Looks strong</h3>{d.strongest.length === 0 ? <p className="text-sm text-muted">No topic stands out yet.</p> : <ul className="mt-1 space-y-1 text-sm">{d.strongest.map((t) => <li key={t.topic_id} className="break-anywhere">{t.name} <span className="text-muted">({pc(t.confidence)}%, {t.correct} of {t.answered})</span></li>)}</ul>}</div>
+        <div><h3 className="font-semibold text-danger">Start here</h3>{d.weakest.length === 0 ? <p className="text-sm text-muted">Nothing to flag.</p> : <ul className="mt-1 space-y-1 text-sm">{d.weakest.map((t) => <li key={t.topic_id} className="break-anywhere">{t.name} <span className="text-muted">({pc(t.confidence)}%, {t.correct} of {t.answered})</span></li>)}</ul>}</div>
+      </div>
+      <p className="mt-3 text-xs text-muted">Ten questions are a starting point, not a verdict. Every quiz you take sharpens these numbers.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {d.suggested && d.suggested !== d.claimed && <Button size="sm" onClick={() => accept.mutate()} disabled={accept.isPending}>Use {LEVEL[d.suggested]} as my level</Button>}
+        <Button asChild size="sm" variant="secondary"><Link href={`/subjects/${subjectId}/progress`}>See confidence by topic</Link></Button>
+      </div>
+    </section>
+  );
+}
 
 const EVENT_LABELS = { tab_switch: "Tab switches", full_screen_exit: "Left full screen", copy_attempt: "Copy attempts blocked", paste_attempt: "Paste attempts blocked" };
 
@@ -23,6 +60,7 @@ export default function ResultPage() {
   const events = Object.entries(data.focus_events).filter(([, n]) => n > 0);
   return (
     <div className="space-y-8">
+      {data.diagnosis && <DiagnosisCard d={data.diagnosis} subjectId={id} />}
       {data.ended_reason && <Alert tone="warning"><b>This assessment was ended early:</b> {data.ended_reason}. Questions you had not answered yet are not counted.</Alert>}
 
       <section aria-labelledby="score-h">

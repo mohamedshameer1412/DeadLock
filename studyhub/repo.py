@@ -47,13 +47,13 @@ class Repo:
         return int(cur.lastrowid)
 
     def list_subjects(self, user_id: int) -> list[dict]:
-        rows = self.db.execute("SELECT id, name, description, created_at FROM subjects WHERE user_id=? "
+        rows = self.db.execute("SELECT id, name, description, created_at, level FROM subjects WHERE user_id=? "
                                "ORDER BY name COLLATE NOCASE", (user_id,)).fetchall()
         return [dict(r) for r in rows]
 
     def get_subject(self, user_id: int, subject_id: int) -> dict | None:
         """None if it does not exist OR belongs to someone else - the caller cannot tell which."""
-        row = self.db.execute("SELECT id, name, description, created_at FROM subjects WHERE id=? AND user_id=?",
+        row = self.db.execute("SELECT id, name, description, created_at, level FROM subjects WHERE id=? AND user_id=?",
                               (subject_id, user_id)).fetchone()
         return dict(row) if row else None
 
@@ -287,11 +287,13 @@ class Repo:
         d["claims"] = []
         for c in self.db.execute("SELECT ordinal, text FROM doubt_claims WHERE doubt_id=? ORDER BY ordinal", (doubt_id,)):
             cites = [dict(x) for x in self.db.execute(
-                "SELECT n, chunk_id, quote, doc_title, page_start, page_end, heading_path FROM doubt_citations "
+                "SELECT n, chunk_id, quote, doc_title, page_start, page_end, heading_path, "
+                "(SELECT document_id FROM chunks WHERE chunks.id=doubt_citations.chunk_id) AS document_id FROM doubt_citations "
                 "WHERE doubt_id=? AND claim=? ORDER BY n", (doubt_id, c["ordinal"]))]
             d["claims"].append({"text": c["text"], "citations": cites})
         d["sources"] = []
-        for s in self.db.execute("SELECT chunk_id, doc_title, page_start, page_end, heading_path, text, matched "
+        for s in self.db.execute("SELECT chunk_id, doc_title, page_start, page_end, heading_path, text, matched, "
+                                 "(SELECT document_id FROM chunks WHERE chunks.id=doubt_sources.chunk_id) AS document_id "
                                  "FROM doubt_sources WHERE doubt_id=? ORDER BY rank", (doubt_id,)):
             item = dict(s)
             item["matched"] = json.loads(item["matched"] or "[]")
@@ -355,12 +357,12 @@ class Repo:
             (topic_id, subject_id, user_id, 0 if answers else 1)).fetchall()
         return [dict(r) for r in rows]
 
-    def create_mcq_job(self, user_id: int, subject_id: int, topic_id: int | None, scope: str, requested: int) -> int | None:
+    def create_mcq_job(self, user_id: int, subject_id: int, topic_id: int | None, scope: str, requested: int, purpose: str = "practice") -> int | None:
         if self.get_subject(user_id, subject_id) is None:
             return None
         return int(self.db.execute(
-            "INSERT INTO mcq_jobs(user_id, subject_id, topic_id, scope, requested, status, created_at) VALUES (?,?,?,?,?,'pending',?)",
-            (user_id, subject_id, topic_id, scope, requested, time.time())).lastrowid)
+            "INSERT INTO mcq_jobs(user_id, subject_id, topic_id, scope, requested, status, created_at, purpose) VALUES (?,?,?,?,?,'pending',?,?)",
+            (user_id, subject_id, topic_id, scope, requested, time.time(), purpose)).lastrowid)
 
     def pending_mcq_jobs(self, user_id: int) -> int:
         return int(self.db.execute("SELECT COUNT(*) FROM mcq_jobs WHERE user_id=? AND status='pending'", (user_id,)).fetchone()[0])
@@ -387,11 +389,11 @@ class Repo:
                 try:
                     self.db.execute(
                         "INSERT INTO mcq_items(subject_id, topic_id, job_id, topic_path, question, options, answer_index, explanation, "
-                        "quote, chunk_id, doc_title, page_start, page_end, heading_path, solver, model, key, created_at) "
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "quote, chunk_id, doc_title, page_start, page_end, heading_path, solver, model, key, created_at, difficulty) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (subject_id, it["topic_id"], job_id, it["topic_path"], it["question"], json.dumps(it["options"]),
                          it["answer_index"], it["explanation"], it["quote"], it["chunk_id"], it["doc_title"], it["page_start"],
-                         it["page_end"], it["heading_path"], it["solver"], model, it["key"], time.time()))
+                         it["page_end"], it["heading_path"], it["solver"], model, it["key"], time.time(), it.get("difficulty", "medium")))
                     stored += 1
                 except sqlite3.IntegrityError:
                     pass
@@ -446,6 +448,39 @@ class Repo:
             (job_id, subject_id, user_id, user_id)).fetchall()
         return [{"seq": r["seq"], "kind": r["kind"], "by": r["produced_by"], "at": r["created_at"],
                  "payload": json.loads(r["payload_json"])} for r in rows]
+
+    # ---------------------------------------------------------------- notes
+
+    def list_notes(self, user_id: int, subject_id: int) -> list[dict]:
+        rows = self.db.execute(
+            "SELECT n.id, n.title, n.body, n.source, n.doubt_id, n.created_at, n.updated_at FROM notes n JOIN subjects s ON s.id=n.subject_id "
+            "WHERE n.subject_id=? AND n.user_id=? AND s.user_id=? ORDER BY n.updated_at DESC, n.id DESC", (subject_id, user_id, user_id)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_note(self, user_id: int, subject_id: int, note_id: int) -> dict | None:
+        row = self.db.execute(
+            "SELECT n.id, n.title, n.body, n.source, n.doubt_id, n.created_at, n.updated_at FROM notes n JOIN subjects s ON s.id=n.subject_id "
+            "WHERE n.id=? AND n.subject_id=? AND n.user_id=? AND s.user_id=?", (note_id, subject_id, user_id, user_id)).fetchone()
+        return dict(row) if row else None
+
+    def add_note(self, user_id: int, subject_id: int, title: str, body: str, source: str = "own", doubt_id: int | None = None) -> int | None:
+        if self.get_subject(user_id, subject_id) is None:
+            return None
+        now = time.time()
+        return int(self.db.execute(
+            "INSERT INTO notes(user_id, subject_id, title, body, source, doubt_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+            (user_id, subject_id, title, body, source, doubt_id, now, now)).lastrowid)
+
+    def update_note(self, user_id: int, subject_id: int, note_id: int, title: str, body: str) -> bool:
+        return self.db.execute(
+            "UPDATE notes SET title=?, body=?, updated_at=? WHERE id=? AND subject_id=? AND user_id=? "
+            "AND EXISTS(SELECT 1 FROM subjects s WHERE s.id=? AND s.user_id=?)",
+            (title, body, time.time(), note_id, subject_id, user_id, subject_id, user_id)).rowcount == 1
+
+    def delete_note(self, user_id: int, subject_id: int, note_id: int) -> bool:
+        return self.db.execute(
+            "DELETE FROM notes WHERE id=? AND subject_id=? AND user_id=? AND EXISTS(SELECT 1 FROM subjects s WHERE s.id=? AND s.user_id=?)",
+            (note_id, subject_id, user_id, subject_id, user_id)).rowcount == 1
 
     # ---------------------------------------------------------------- quiz attempts (Phase C)
 

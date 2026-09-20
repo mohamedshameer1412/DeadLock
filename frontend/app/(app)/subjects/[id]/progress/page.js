@@ -62,6 +62,7 @@ export default function ProgressPage() {
         <p className="max-w-xl text-sm text-muted">A confidence score for every topic, worked out from your quiz answers with an IRT model. It grows more certain as you answer more.</p>
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="secondary" size="sm"><Link href={`/subjects/${id}/quiz`}>Diagnostic or revision quiz</Link></Button>
+          <Button asChild variant="secondary" size="sm"><Link href={`/subjects/${id}/roadmap`}>Skill gaps and roadmap</Link></Button>
           <Button asChild size="sm"><Link href={`/subjects/${id}/report`}><FileBarChart className="h-4 w-4" aria-hidden="true" /> Report</Link></Button>
         </div>
       </div>

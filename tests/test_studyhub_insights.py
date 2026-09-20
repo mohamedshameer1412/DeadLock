@@ -49,6 +49,8 @@ def test_the_estimator_moves_the_right_way_and_is_honest_about_little_evidence()
 
 def test_a_missed_question_steps_back_to_the_topic_it_builds_on_once(env, monkeypatch):  # noqa: F811
     a, sid, (basics, advanced), (n_basics, n_advanced) = world(env, monkeypatch)
+    import random
+    monkeypatch.setattr(random, "shuffle", lambda x: x.reverse())              # the later topic comes first, so there is something to step back from
     aid = start(a, sid)
     stepped, saw_backtrack_item = 0, False
     for _ in range(20):
@@ -117,3 +119,63 @@ def test_the_report_has_the_numbers_a_csv_and_belongs_to_its_owner(env, monkeypa
     assert is_error(b.req("GET", f"/subjects/{sid}/report"), 404, "not_found")
     assert is_error(b.req("GET", f"/subjects/{sid}/revision"), 404, "not_found")
     assert is_error(b.req("GET", f"/subjects/{sid}/report.csv"), 404, "not_found")
+
+
+# ------------------------------------------------------------------------------------------ level and diagnostic
+
+def test_the_level_is_stored_per_subject_and_only_by_its_owner(env, monkeypatch):  # noqa: F811
+    a, sid, _, _ = world(env, monkeypatch)
+    assert a.req("GET", f"/subjects/{sid}").json()["level"] is None
+    assert is_error(a.req("PUT", f"/subjects/{sid}/level", json={"level": "wizard"}), 400, "invalid")
+    assert is_error(a.req("PUT", f"/subjects/{sid}/level", csrf=False, json={"level": "new"}), 403, "csrf")
+    assert a.req("PUT", f"/subjects/{sid}/level", json={"level": "intermediate"}).json() == {"level": "intermediate"}
+    assert a.req("GET", f"/subjects/{sid}").json()["level"] == "intermediate"
+    b = signed_in("bob")
+    assert is_error(b.req("PUT", f"/subjects/{sid}/level", json={"level": "new"}), 404, "not_found")
+
+
+def test_a_diagnostic_job_asks_for_a_spread_of_difficulties():
+    from studyhub import mcq
+    import itertools
+    token = mcq._MIX.set(itertools.cycle(mcq.LEVELS))
+    try:
+        prompts = [mcq.write_prompt([{"doc_title": "d", "heading_path": "", "page_start": None, "text": "x" * 200}], 1, []) for _ in range(4)]
+    finally:
+        mcq._MIX.reset(token)
+    assert [("easy" in p, "medium" in p, "hard" in p) for p in prompts] == [(True, False, False), (False, True, False), (False, False, True), (True, False, False)]
+    assert mcq._norm_difficulty("HARD") == "hard" and mcq._norm_difficulty("tricky") == "medium" and mcq._norm_difficulty(None) == "medium"
+
+
+def test_a_diagnostic_from_a_job_concludes_a_level_and_names_strong_and_weak_topics(env, monkeypatch):  # noqa: F811
+    a, sid, (t1, t2), (n1, n2) = world(env, monkeypatch)
+    job = a.req("POST", f"/subjects/{sid}/mcq/jobs", json={"purpose": "wizard"})
+    assert is_error(job, 400, "invalid")
+    store = open_db()
+    jid = store.db.execute("INSERT INTO mcq_jobs(user_id, subject_id, scope, requested, status, created_at, purpose) "
+                           "SELECT user_id, id, 'diagnostic', 10, 'done', 0, 'diagnostic' FROM subjects WHERE id=?", (sid,)).lastrowid
+    for i, diff in enumerate(["easy", "easy", "easy", "medium", "medium", "medium", "hard", "hard", "hard", "hard"]):
+        tid = t1 if i < 5 else t2
+        store.db.execute("INSERT INTO mcq_items(subject_id,topic_id,job_id,topic_path,question,options,answer_index,explanation,quote,key,created_at,difficulty) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (sid, tid, jid, "p", f"Diagnostic {i}?", json.dumps(["a", "b", "c", "d"]), 1, "because", "quote", f"diag{i}", time.time(), diff))
+    store.close()
+    a.req("PUT", f"/subjects/{sid}/level", json={"level": "professional"})
+    r = a.req("POST", f"/subjects/{sid}/quiz/attempts", json={"kind": "diagnostic", "job_id": jid})
+    assert r.status_code == 201
+    aid = r.json()["id"]
+    assert a.req("GET", f"/subjects/{sid}/quiz/attempts/{aid}").json()["total_questions"] == 10
+    assert is_error(a.req("POST", f"/subjects/{sid}/quiz/attempts", json={"kind": "diagnostic", "job_id": 9999}), 404, "not_found")
+    while True:                                                    # topic 1 questions right, topic 2 questions wrong
+        st = a.req("GET", f"/subjects/{sid}/quiz/attempts/{aid}").json()
+        if st["state"] != "mcq":
+            break
+        it = st["item"]
+        right = it["topic"] == n1
+        answer(a, sid, aid, it, 1 if right else 0)
+    res = a.req("GET", f"/subjects/{sid}/quiz/attempts/{aid}/result").json()
+    d = res["diagnosis"]
+    assert d["claimed"] == "professional" and d["suggested"] in ("new", "intermediate") and "You said Professional" in d["note"]
+    assert sum(v["answered"] for v in d["by_difficulty"].values()) >= 10 and d["by_difficulty"]["hard"]["answered"] >= 4
+    assert d["weakest"][0]["name"] == n2 and (not d["strongest"] or d["strongest"][0]["name"] == n1)
+    other = start(a, sid)                                          # a normal quiz has no diagnosis
+    answer_all(a, sid, other)
+    assert a.req("GET", f"/subjects/{sid}/quiz/attempts/{other}/result").json()["diagnosis"] is None

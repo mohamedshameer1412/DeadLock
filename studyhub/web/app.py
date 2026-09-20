@@ -14,10 +14,12 @@ Security notes
 from __future__ import annotations
 
 import secrets
+import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager, contextmanager
 
+from pydantic import BaseModel
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
@@ -25,7 +27,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from studyhub import auth, ingest, mcq, models, qa, retrieval, settings
 from studyhub import db as studydb
-from studyhub import scoring, quiz_flow, quiz_agents
+from studyhub import scoring, quiz_flow, quiz_agents, roadmap
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import api as api_module
 from studyhub.web import ui
@@ -43,6 +45,8 @@ async def _lifespan(_app):
         Repo(store.db).expire_stale_attempts(3600)   # Phase C: mark abandoned attempts finished
     finally:
         store.close()
+    from studyhub import digest
+    digest.start_scheduler()                          # the weekly summary e-mail (off under tests)
     yield
 
 
@@ -60,6 +64,14 @@ async def _validation_error(request: Request, exc: RequestValidationError):
 
 # Which models answer a question. A function so tests (and other deployments) can swap it: (db, user) -> (tiers, notes).
 tier_factory = models.build_tiers
+
+
+def tiers_for(db, user, task: str = "answer"):
+    """The models for one kind of work. Tests replace `tier_factory` with a two-argument function, which is still accepted."""
+    try:
+        return tier_factory(db, user, task=task)
+    except TypeError:
+        return tier_factory(db, user)
 _worker: ThreadPoolExecutor | None = None
 _worker_lock = threading.Lock()
 
@@ -78,6 +90,10 @@ async def security_headers(request: Request, call_next):
         + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
+    if response.headers.get("X-Nexus-Frameable") == "1":       # the student's own uploaded file, shown by our own viewer: same origin only
+        del response.headers["X-Nexus-Frameable"]
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -400,7 +416,7 @@ def _process(doubt_id: int, user_id: int) -> None:
     with _open_store() as store:
         repo = Repo(store.db)
         try:
-            tiers, notes = tier_factory(store.db, repo.get_user(user_id))
+            tiers, notes = tiers_for(store.db, repo.get_user(user_id), "answer")
             qa.run_doubt(store, user_id, doubt_id, tiers, notes)
         except Exception as e:                                # the student must never be left on a spinner
             repo.finish_doubt(user_id, doubt_id, status="failed", tier=None, model=None, dropped=0, claims=[], sources=[],
@@ -518,12 +534,66 @@ def _process_mcq(job_id: int, user_id: int) -> None:
     with _open_store() as store:
         repo = Repo(store.db)
         try:
-            tiers, notes = tier_factory(store.db, repo.get_user(user_id))
+            tiers, notes = tiers_for(store.db, repo.get_user(user_id), "write")
             mcq.run_job(store, user_id, job_id, tiers, notes)
         except Exception as e:
             store.db.execute("UPDATE mcq_jobs SET status='failed', reason=?, finished_at=strftime('%s','now') "
                              "WHERE id=? AND user_id=? AND status='pending'",
                              (f"Something went wrong while writing questions ({type(e).__name__}). Please try again.", job_id, user_id))
+
+
+def _submit_task(fn, *args) -> None:
+    """Run a slow job (a model call) on the same single worker as questions and practice generation."""
+    global _worker
+    if settings.qa_inline():
+        fn(*args)
+        return
+    with _worker_lock:
+        if _worker is None:
+            _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="qa")
+        _worker.submit(fn, *args)
+
+
+class _CoachOut(BaseModel):
+    text: str
+
+
+def _process_coach(user_id: int, subject_id: int) -> None:
+    """Write the coach paragraph for a subject's roadmap: the cloud first when the student allowed it, then the local model, then plain rules."""
+    from slice.budget import Budget
+    from slice.records import RunState
+    store = studydb.open_db()
+    try:
+        repo = Repo(store.db)
+        user, subject = repo.get_user(user_id), repo.get_subject(user_id, subject_id)
+        if user is None or subject is None:
+            return
+        profile = roadmap.get_profile(store.db, user_id, subject_id)
+        info = roadmap.skill_gaps(store.db, user_id, subject_id, subject.get("level"))
+        plan = roadmap.build(info, subject_id, profile["hours_per_week"], profile["target_date"])
+        digest_ = roadmap.plan_hash(info, profile)
+        run_id = store.create_run("roadmap", {"subject_id": subject_id})
+        text, model = None, None
+        tiers, _notes = tiers_for(store.db, user, "plan")
+        for tier in tiers:
+            try:
+                out = mcq._call(tier, Budget(store, run_id, tier.settings), [{"role": "system", "content": roadmap.COACH_SYSTEM},
+                                {"role": "user", "content": roadmap.coach_prompt(subject["name"], info, plan, profile)}], _CoachOut, f"roadmap_coach_{tier.name}")
+                text = roadmap.clean_coach(out.text, info)
+                if text:
+                    model = tier.model
+                    break
+            except Exception:
+                continue
+        if not text:
+            text, model = roadmap.rule_coach(info, plan), "rules (no model answered)"
+        store.db.execute("UPDATE study_plans SET coach_status='done', coach_text=?, coach_model=?, coach_hash=?, coach_at=? WHERE subject_id=? AND user_id=?",
+                         (text, model, digest_, time.time(), subject_id, user_id))
+        store.set_state(run_id, RunState.COMPLETE)
+    except Exception:
+        store.db.execute("UPDATE study_plans SET coach_status='failed' WHERE subject_id=? AND user_id=?", (subject_id, user_id))
+    finally:
+        store.close()
 
 
 def _submit_mcq(job_id: int, user_id: int) -> None:

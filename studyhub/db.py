@@ -374,6 +374,82 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (9);
     COMMIT;
     """),
+    (10, """\
+    BEGIN;
+    -- What the student says they already know (asked once, after the first upload), and how hard each practice question is.
+    ALTER TABLE subjects ADD COLUMN level TEXT CHECK (level IN ('new', 'intermediate', 'professional'));
+    ALTER TABLE mcq_items ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'medium' CHECK (difficulty IN ('easy', 'medium', 'hard'));
+    ALTER TABLE mcq_jobs ADD COLUMN purpose TEXT NOT NULL DEFAULT 'practice' CHECK (purpose IN ('practice', 'diagnostic'));
+
+    -- Notes: written by the student, or saved from a chat answer.
+    CREATE TABLE notes (
+        id          INTEGER PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        title       TEXT NOT NULL,
+        body        TEXT NOT NULL DEFAULT '',
+        source      TEXT NOT NULL DEFAULT 'own' CHECK (source IN ('own', 'chat')),
+        doubt_id    INTEGER REFERENCES doubts(id) ON DELETE SET NULL,
+        created_at  REAL NOT NULL,
+        updated_at  REAL NOT NULL
+    );
+    CREATE INDEX notes_by_subject ON notes(user_id, subject_id, updated_at);
+
+    -- Weekly progress e-mail: opt-in, with the address the student gave.
+    ALTER TABLE users ADD COLUMN email TEXT;
+    ALTER TABLE users ADD COLUMN weekly_email INTEGER NOT NULL DEFAULT 0 CHECK (weekly_email IN (0, 1));
+    ALTER TABLE users ADD COLUMN last_digest_at REAL;
+    INSERT INTO schema_version(v) VALUES (10);
+    COMMIT;
+    """),
+    (11, """\
+    BEGIN;
+    -- E-mail one-time codes (password reset, address verification) and the counters that limit guessing and flooding.
+    ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0 CHECK (email_verified IN (0, 1));
+    CREATE UNIQUE INDEX users_verified_email ON users(lower(email)) WHERE email_verified=1;
+    CREATE TABLE email_otps (
+        id          INTEGER PRIMARY KEY,
+        purpose     TEXT NOT NULL CHECK (purpose IN ('reset', 'verify')),
+        user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        email       TEXT NOT NULL,
+        code_hash   TEXT NOT NULL,                 -- HMAC of the code; the code itself is never stored
+        salt        BLOB NOT NULL,
+        created_at  REAL NOT NULL,
+        expires_at  REAL NOT NULL,
+        attempts    INTEGER NOT NULL DEFAULT 0,
+        consumed_at REAL,
+        ip          TEXT NOT NULL DEFAULT ''
+    );
+    CREATE INDEX email_otps_lookup ON email_otps(email, purpose, created_at);
+    CREATE TABLE security_events (
+        id    INTEGER PRIMARY KEY,
+        kind  TEXT NOT NULL,
+        key   TEXT NOT NULL,
+        at    REAL NOT NULL
+    );
+    CREATE INDEX security_events_lookup ON security_events(kind, key, at);
+    INSERT INTO schema_version(v) VALUES (11);
+    COMMIT;
+    """),
+    (12, """\
+    BEGIN;
+    -- The student's study profile for one subject (goal, weekly hours, target date) and the coach paragraph written for it.
+    CREATE TABLE study_plans (
+        subject_id     INTEGER PRIMARY KEY REFERENCES subjects(id) ON DELETE CASCADE,
+        user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        goal           TEXT NOT NULL DEFAULT '',
+        hours_per_week REAL NOT NULL DEFAULT 5,
+        target_date    TEXT,
+        coach_status   TEXT NOT NULL DEFAULT 'idle' CHECK (coach_status IN ('idle', 'pending', 'done', 'failed')),
+        coach_text     TEXT NOT NULL DEFAULT '',
+        coach_model    TEXT,
+        coach_hash     TEXT,
+        coach_at       REAL,
+        updated_at     REAL NOT NULL
+    );
+    INSERT INTO schema_version(v) VALUES (12);
+    COMMIT;
+    """),
 ]
 
 

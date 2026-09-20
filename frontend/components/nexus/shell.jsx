@@ -7,7 +7,7 @@ import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, User } from "lucid
 import { CommandPalette } from "@/components/nexus/command-palette";
 import { DesktopSidebar, MobileDrawer } from "@/components/nexus/sidebar";
 import { Logo } from "@/components/nexus/logo";
-import { api, fetchSession } from "@/lib/api";
+import { api, clearOfflineData, fetchSession } from "@/lib/api";
 import { getSession, keys } from "@/lib/queries";
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Skeleton } from "@/components/ui/primitives";
 
@@ -21,6 +21,7 @@ export function useLogout() {
       await api("/logout", { method: "POST" });
     } catch {}
     qc.clear();
+    clearOfflineData();
     await fetchSession(); // a fresh pre-session token for the next login
     router.replace("/login");
   };
@@ -35,6 +36,18 @@ function useDesktop() {
   );
 }
 
+function useOnline() {
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    const on = () => setOnline(navigator.onLine);
+    on();
+    window.addEventListener("online", on);
+    window.addEventListener("offline", on);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", on); };
+  }, []);
+  return online;
+}
+
 /** Signed-in frame: header + guard. Sends signed-out visitors to /login. */
 export function AppShell({ children }) {
   const router = useRouter();
@@ -43,6 +56,7 @@ export function AppShell({ children }) {
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("nexus.sidebar") === "collapsed"; } catch { return false; } });
   const [drawer, setDrawer] = useState(false);
   const [palette, setPalette] = useState(false);
+  const online = useOnline();
   useEffect(() => {
     const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((o) => !o); } };
     window.addEventListener("keydown", onKey);
@@ -108,6 +122,7 @@ export function AppShell({ children }) {
       <CommandPalette open={palette} onOpenChange={setPalette} />
       {desktop ? <DesktopSidebar collapsed={collapsed} /> : <MobileDrawer open={drawer} onOpenChange={setDrawer} />}
       <div className={collapsed ? "lg:pl-16" : "lg:pl-64"}>
+        {!online && <p role="status" className="bg-warning-bg px-4 py-2 text-center text-sm font-semibold text-warning">You are offline. Pages and materials you opened before still work; asking, quizzes and saving need a connection.</p>}
         <main id="main" className="mx-auto max-w-5xl px-4 pb-28 pt-6 sm:pb-10">
           {children}
         </main>

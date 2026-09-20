@@ -9,6 +9,7 @@ import { useTitle } from "@/lib/use-title";
 import { plural } from "@/lib/utils";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
 import UploadDropzone from "@/components/nexus/upload-dropzone";
+import WebPageForm from "@/components/nexus/web-page-form";
 import { PassageCard } from "@/components/nexus/passage";
 import { Alert, Badge, Button, Card, Input, Skeleton } from "@/components/ui/primitives";
 
@@ -86,6 +87,7 @@ export default function MaterialsPage() {
     <div>
       <h2 className="mb-2 text-lg font-bold">Materials</h2>
       <UploadDropzone subjectId={id} />
+      <WebPageForm subjectId={id} />
       <div className="mt-4"><Documents id={id} /></div>
       <Topics id={id} />
       <SearchBox id={id} />

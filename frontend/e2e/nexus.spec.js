@@ -150,7 +150,7 @@ test("document page lists passages with sections, and removing asks first", asyn
 test("account page: consent is off, can be switched on, and is remembered", async () => {
   await page.getByRole("button", { name: /Account menu/ }).click();
   await page.getByRole("menuitem", { name: "Account" }).click();
-  const box = page.getByRole("checkbox", { name: "Allow cloud models as a fallback for my questions" });
+  const box = page.getByRole("checkbox", { name: "Use cloud models first, with this computer as the backup" });
   await expect(box).not.toBeChecked();
   await expect(page.getByText("sent to OpenRouter")).toBeVisible();
   await box.check();

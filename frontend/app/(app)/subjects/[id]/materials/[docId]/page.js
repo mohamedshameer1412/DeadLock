@@ -45,6 +45,13 @@ export default function DocumentPage() {
         <Badge tone={d.status === "parsed" ? "success" : "warning"}>{d.status}</Badge>
       </p>
       {d.warnings.map((w) => <Alert key={w} className="mt-2">{w}</Alert>)}
+      {d.kind === "pdf" && (
+        <details open className="mt-4 rounded-lg border border-border bg-surface">
+          <summary className="flex min-h-11 cursor-pointer items-center px-3 text-sm font-semibold">The uploaded PDF</summary>
+          <iframe src={`/api/v1/subjects/${id}/materials/${docId}/file`} title={`${d.title} (PDF)`} className="h-[70vh] w-full border-0" />
+        </details>
+      )}
+      {d.kind === "url" && <p className="break-anywhere mt-2 text-sm">Web page: <a href={d.source} target="_blank" rel="noopener noreferrer">{d.source}</a></p>}
       <div className="mt-4 space-y-3">
         {passages.length === 0 && <p className="text-sm text-muted">Nothing could be extracted from this file.</p>}
         {passages.map((p) => (

@@ -66,7 +66,7 @@ def quarantine(chunks: list[ChunkSpec]) -> list[ChunkSpec]:
     return out
 
 
-def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str, data: bytes) -> IngestResult:
+def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str, data: bytes, *, source_url: str | None = None) -> IngestResult:
     repo = Repo(db)
     if repo.get_subject(user_id, subject_id) is None:
         raise IngestError("That subject does not exist.")
@@ -109,7 +109,7 @@ def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str,
         os.replace(tmp, path)
 
     doc_id = repo.store_document(user_id, subject_id, {
-        "kind": kind, "title": title, "source": " ".join((filename or "upload").split())[:200], "sha256": sha,
+        "kind": "url" if source_url else kind, "title": title, "source": (source_url or " ".join((filename or "upload").split()))[:500 if source_url else 200], "sha256": sha,
         "bytes": len(data), "pages": pages, "status": status, "warnings": warnings}, chunks)
     if doc_id is None:                                       # lost the subject between the check and the insert
         raise IngestError("That subject does not exist.")
