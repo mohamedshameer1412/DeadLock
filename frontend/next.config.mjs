@@ -3,12 +3,12 @@ const API_ORIGIN = process.env.API_ORIGIN || "http://127.0.0.1:8100";
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: { proxyTimeout: 600000 }, // a large textbook can take a minute or two to read; the default proxy gives up after 30 s
   distDir: process.env.NEXT_DIST_DIR || ".next", // the E2E build goes elsewhere so it never replaces the app you are running
   poweredByHeader: false,
   reactStrictMode: true,
   experimental: {
     middlewareClientMaxBodySize: '50mb',
+    proxyTimeout: 600000, // a large textbook can take a minute or two to read; the default proxy gives up after 30 s
   },
   async headers() {
     return [{ source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Service-Worker-Allowed", value: "/" }] }];
