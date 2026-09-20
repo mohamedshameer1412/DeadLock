@@ -6,6 +6,9 @@ const nextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next", // the E2E build goes elsewhere so it never replaces the app you are running
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    middlewareClientMaxBodySize: '50mb',
+  },
   async headers() {
     return [{ source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Service-Worker-Allowed", value: "/" }] }];
   },
