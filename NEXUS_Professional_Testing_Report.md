@@ -1,7 +1,6 @@
 # NEXUS — Software Testing, Validation and Evidence Report
 
 **Project:** NEXUS — AI-Powered Adaptive Learning and Assessment Platform  
-**Repository:** https://github.com/mohamedshameer1412/DeadLock  
 **Report Type:** Functional Testing, Negative Testing, Stress/Break Testing and Iteration Evidence  
 **Prepared By:** NEXUS Development Team  
 **Date:** 20 September 2026  
