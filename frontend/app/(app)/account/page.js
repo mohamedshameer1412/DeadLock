@@ -12,6 +12,61 @@ import { EmailSettings } from "@/components/nexus/email-settings";
 import { ErrorState, useLogout } from "@/components/nexus/shell";
 import { Alert, Button, Card, Checkbox, Dialog, DialogClose, DialogContent, DialogTrigger, Input, Label, Skeleton } from "@/components/ui/primitives";
 
+function ProfileName({ user }) {
+  const qc = useQueryClient();
+  const [username, setUsername] = useState(user.username);
+  const [problem, setProblem] = useState("");
+  const save = useMutation({
+    mutationFn: () => api("/account/profile", { method: "PUT", json: { username } }),
+    onSuccess: (r) => { setUsername(r.username); setProblem(""); qc.invalidateQueries({ queryKey: keys.session }); qc.invalidateQueries({ queryKey: keys.account }); toast.success("Name updated"); },
+    onError: (e) => setProblem(friendlyError(e)),
+  });
+  return (
+    <Card id="profile" className="mt-5 scroll-mt-20">
+      <div className="flex items-center gap-4">
+        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-primary text-2xl font-bold uppercase text-white" aria-hidden="true">{user.username.slice(0, 1)}</span>
+        <div className="min-w-0">
+          <h2 className="break-anywhere text-lg font-bold">{user.username}</h2>
+          <p className="break-anywhere text-sm text-muted">{user.email ?? "No email on this account"}</p>
+        </div>
+      </div>
+      <form className="mt-4 grid max-w-xl gap-3 sm:grid-cols-[1fr_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); setProblem(""); save.mutate(); }}>
+        <div>
+          <Label htmlFor="ac-name">Username</Label>
+          <Input id="ac-name" value={username} maxLength={32} onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" spellCheck={false} />
+          <p className="mt-1 text-xs text-muted">Shown in the top bar. 3 to 32 letters, digits, dot, dash or underscore.</p>
+        </div>
+        <Button type="submit" disabled={save.isPending || username.trim() === user.username}>{save.isPending ? "Saving…" : "Save name"}</Button>
+      </form>
+      {problem && <Alert tone="danger" className="mt-3">{problem}</Alert>}
+    </Card>
+  );
+}
+
+function Academic({ initial }) {
+  const qc = useQueryClient();
+  const [department, setDepartment] = useState(initial?.department ?? "");
+  const [semester, setSemester] = useState(initial?.semester ? String(initial.semester) : "");
+  const [problem, setProblem] = useState("");
+  const save = useMutation({
+    mutationFn: () => api("/account/academic", { method: "PUT", json: { department, semester: semester ? Number(semester) : null } }),
+    onSuccess: () => { setProblem(""); qc.invalidateQueries({ queryKey: keys.account }); qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === "twin" }); toast.success("Saved"); },
+    onError: (e) => setProblem(friendlyError(e)),
+  });
+  return (
+    <Card className="mt-6" id="study">
+      <h2 className="text-lg font-bold">Study setup</h2>
+      <p className="mt-1 text-sm text-muted">Shown on your learner profile. Set each subject&apos;s exam date on its Roadmap tab.</p>
+      <form className="mt-3 grid max-w-xl gap-3 sm:grid-cols-[1fr_9rem_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); setProblem(""); save.mutate(); }}>
+        <div><Label htmlFor="ac-dept">Department or course</Label><Input id="ac-dept" value={department} maxLength={80} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g. Computer Science" /></div>
+        <div><Label htmlFor="ac-sem">Semester</Label><Input id="ac-sem" type="number" min={1} max={12} value={semester} onChange={(e) => setSemester(e.target.value)} /></div>
+        <Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save"}</Button>
+      </form>
+      {problem && <Alert tone="danger" className="mt-3">{problem}</Alert>}
+    </Card>
+  );
+}
+
 function ChangePassword() {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -23,8 +78,8 @@ function ChangePassword() {
     onError: (e) => setProblem(friendlyError(e)),
   });
   return (
-    <Card className="mt-6">
-      <h2 className="text-lg font-bold">Change password</h2>
+    <Card className="mt-6 scroll-mt-20" id="security">
+      <h2 className="text-lg font-bold">Password and security</h2>
       <form className="mt-3 max-w-sm space-y-3" onSubmit={(e) => { e.preventDefault(); setProblem(""); if (next !== again) return setProblem("The two new passwords are not the same."); save.mutate(); }}>
         <div><Label htmlFor="pw-current">Current password</Label><Input id="pw-current" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></div>
         <div><Label htmlFor="pw-new">New password</Label><Input id="pw-new" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></div>
@@ -87,11 +142,22 @@ export default function AccountPage() {
   if (isPending) return <Skeleton className="h-40" />;
   const on = local ?? data.user.cloud_consent;
   return (
-    <div className="max-w-2xl">
+    <div>
       <h1 className="text-2xl font-bold">Account</h1>
-      <p className="text-sm text-muted">Signed in as <b>{data.user.username}</b></p>
-      <Card className="mt-5">
-        <h2 className="text-lg font-bold">Cloud models</h2>
+      <p className="text-sm text-muted">Your profile, sign-in, privacy and data.</p>
+      <div className="lg:grid lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
+        <nav aria-label="Account sections" className="mt-4 flex gap-1 overflow-x-auto pb-1 lg:sticky lg:top-20 lg:mt-5 lg:flex-col lg:self-start lg:overflow-visible">
+          {[["profile", "Profile"], ["study", "Study setup"], ["email", "Email and sign-in"], ["security", "Password"], ["ai", "AI models and privacy"], ["data", "Your data"], ["danger", "Delete account"]].map(([id, label]) => (
+            <a key={id} href={`#${id}`} className="inline-flex min-h-11 shrink-0 items-center rounded-md px-3 text-sm font-semibold text-muted no-underline hover:bg-accent hover:text-link">{label}</a>
+          ))}
+        </nav>
+        <div className="max-w-3xl min-w-0">
+      <ProfileName user={{ ...data.user, email: data.email?.login ?? data.user.email }} />
+      <Academic key={JSON.stringify(data.academic)} initial={data.academic} />
+      <div id="email" className="scroll-mt-20">{data.email && <EmailSettings info={data.email} />}</div>
+      <ChangePassword />
+      <Card className="mt-6 scroll-mt-20" id="ai">
+        <h2 className="text-lg font-bold">AI models and privacy</h2>
         <p className="mt-1 text-sm">If you allow it, Nexus asks a fast cloud model (OpenRouter) first, and uses the model on this computer as the backup when the cloud is unavailable or the shared credit runs low. Small checks always run on this computer.</p>
         <p className="mt-2 text-sm"><b>If you allow this, the passages found for your question (a few paragraphs, never your whole files) are sent to OpenRouter and the model provider.</b> If you do not, nothing ever leaves this computer.</p>
         <p className="mt-2 text-xs text-muted">Cloud key configured on the server: <b>{data.key_configured ? "yes" : "no"}</b>{data.allowed_models.length > 0 && <> · allowed models: {data.allowed_models.join(", ")}</>}</p>
@@ -101,18 +167,16 @@ export default function AccountPage() {
         </label>
       </Card>
 
-      {data.email && <EmailSettings info={data.email} />}
-
-      <ChangePassword />
-
-      <Card className="mt-6">
+      <Card className="mt-6 scroll-mt-20" id="data">
         <h2 className="text-lg font-bold">Your data</h2>
         <p className="mt-1 text-sm">Download everything the account holds (subjects, the text of your materials, questions, practice questions, quizzes and answers) as one file.</p>
         <Button asChild variant="secondary" className="mt-3"><a href="/api/v1/account/export" download><Download className="h-4 w-4" aria-hidden="true" /> Download my data (JSON)</a></Button>
       </Card>
 
-      <DeleteAccount />
+      <div id="danger" className="scroll-mt-20"><DeleteAccount /></div>
       <div className="mt-6"><Button variant="secondary" onClick={logout}>Log out</Button></div>
+        </div>
+      </div>
     </div>
   );
 }

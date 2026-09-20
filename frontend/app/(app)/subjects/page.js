@@ -12,6 +12,7 @@ import { getSubjects, keys } from "@/lib/queries";
 import { friendlyError, plural } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
+import { DeleteSubject, EditSubject } from "@/components/nexus/subject-actions";
 import { Alert, Button, Card, Dialog, DialogContent, DialogTrigger, Input, Label, Skeleton, Textarea } from "@/components/ui/primitives";
 
 const schema = z.object({
@@ -97,6 +98,7 @@ export default function SubjectsPage() {
                   <span className="inline-flex items-center gap-1"><FileText className="h-4 w-4" aria-hidden="true" />{plural(s.counts.documents, "material")}</span>
                   <span className="inline-flex items-center gap-1"><MessageCircleQuestion className="h-4 w-4" aria-hidden="true" />{plural(s.counts.questions, "question")}</span>
                 </p>
+                <div className="mt-3 flex gap-2 border-t border-border pt-3"><EditSubject subject={s} /><DeleteSubject subject={s} /></div>
               </Card>
             </li>
           ))}

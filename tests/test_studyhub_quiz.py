@@ -75,11 +75,12 @@ def test_migration_creates_tables(isolated):  # noqa: F811
         store.close()
 
 
-def test_schema_version_is_12(isolated):  # noqa: F811
+def test_schema_version_is_the_latest_migration(isolated):  # noqa: F811
     store = open_db()
     try:
         v = store.db.execute("SELECT MAX(v) FROM schema_version").fetchone()[0]
-        assert v == 12
+        from studyhub.db import MIGRATIONS
+        assert v == max(n for n, _ in MIGRATIONS) == 14
     finally:
         store.close()
 

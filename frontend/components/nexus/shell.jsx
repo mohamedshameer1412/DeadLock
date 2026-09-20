@@ -5,6 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, User } from "lucide-react";
 import { CommandPalette } from "@/components/nexus/command-palette";
+import { JobWatcher } from "@/components/nexus/job-watcher";
 import { DesktopSidebar, MobileDrawer } from "@/components/nexus/sidebar";
 import { Logo } from "@/components/nexus/logo";
 import { api, clearOfflineData, fetchSession } from "@/lib/api";
@@ -103,11 +104,15 @@ export function AppShell({ children }) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" aria-label={`Account menu for ${session.user.username}`}>
-                <User className="h-5 w-5" aria-hidden="true" />
-                <span className="hidden max-w-32 truncate sm:inline">{session.user.username}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold uppercase text-white" aria-hidden="true">{session.user.username.slice(0, 1)}</span>
+                <span className="max-w-24 truncate text-sm font-semibold sm:max-w-40">{session.user.username}</span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent>
+              <div className="border-b border-border px-3 py-2">
+                <p className="break-anywhere text-sm font-semibold">{session.user.username}</p>
+                {session.user.email && <p className="break-anywhere text-xs text-muted">{session.user.email}</p>}
+              </div>
               <DropdownMenuItem onSelect={() => router.push("/account")}>
                 <User className="h-4 w-4" aria-hidden="true" /> Account
               </DropdownMenuItem>
@@ -120,6 +125,7 @@ export function AppShell({ children }) {
         </div>
       </header>
       <CommandPalette open={palette} onOpenChange={setPalette} />
+      <JobWatcher />
       {desktop ? <DesktopSidebar collapsed={collapsed} /> : <MobileDrawer open={drawer} onOpenChange={setDrawer} />}
       <div className={collapsed ? "lg:pl-16" : "lg:pl-64"}>
         {!online && <p role="status" className="bg-warning-bg px-4 py-2 text-center text-sm font-semibold text-warning">You are offline. Pages and materials you opened before still work; asking, quizzes and saving need a connection.</p>}

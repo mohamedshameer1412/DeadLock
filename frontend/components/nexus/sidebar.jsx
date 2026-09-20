@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { BookOpen, Bookmark, LayoutDashboard, LibraryBig, Search, User, X } from "lucide-react";
+import { BookOpen, Bookmark, Briefcase, LayoutDashboard, LibraryBig, Search, User, X } from "lucide-react";
 import { getSubjects, keys } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/nexus/logo";
@@ -37,6 +37,7 @@ function NavLinks({ compact, onNavigate }) {
         <li><Item href="/subjects" Icon={LibraryBig} label="All subjects" active={is("/subjects")} compact={compact} onNavigate={onNavigate} /></li>
         <li><Item href="/search" Icon={Search} label="Search materials" active={is("/search")} compact={compact} onNavigate={onNavigate} /></li>
         <li><Item href="/saved" Icon={Bookmark} label="Saved answers" active={is("/saved")} compact={compact} onNavigate={onNavigate} /></li>
+        <li><Item href="/career" Icon={Briefcase} label="Career goals" active={pathname === "/career" || pathname.startsWith("/career/")} compact={compact} onNavigate={onNavigate} /></li>
       </ul>
       {!compact && subjects?.length > 0 && (
         <div>

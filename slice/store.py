@@ -85,9 +85,10 @@ class Store:
 
     def __init__(self, path: str | Path = "run.db") -> None:
         self.path = str(path)
-        self.db = sqlite3.connect(self.path, isolation_level=None)
+        self.db = sqlite3.connect(self.path, isolation_level=None, timeout=30)      # wait up to 30 s for a lock (a big upload or a job writing) instead of failing
         self.db.row_factory = sqlite3.Row
         self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA busy_timeout=30000")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.db.executescript(SCHEMA)
 

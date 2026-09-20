@@ -1,5 +1,5 @@
 import { api, fetchSession } from "@/lib/api";
-import { Account, Dashboard, Roadmap, Note, NoteList, Flashcards, Report, Revision, Saved, SearchAll, DocDetail, McqAnswer, McqJob, McqList, Progress, QuizHome, QuizResult, QuizState, DocList, QuestionDetail, QuestionList, SearchResult, Session, SubjectList, Subject, TopicList, check } from "@/lib/schemas";
+import { ActiveJobs, Account, ExampleList, Twin, Career, CareerList, Dashboard, Outlook, Roadmap, SelfCheck, Note, NoteList, Flashcards, Report, Revision, Saved, SearchAll, DocDetail, McqAnswer, McqJob, McqList, Progress, QuizHome, QuizResult, QuizState, DocList, QuestionDetail, QuestionList, SearchResult, Session, SubjectList, Subject, TopicList, check } from "@/lib/schemas";
 
 export const keys = {
   session: ["session"],
@@ -27,6 +27,13 @@ export const keys = {
   searchAll: (q) => ["search-all", q],
   revision: (id) => ["revision", id],
   report: (id) => ["report", id],
+  outlook: (id) => ["outlook", id],
+  activeJobs: ["active-jobs"],
+  twin: (id) => ["twin", id],
+  examples: (id, t) => ["examples", id, t],
+  selfCheck: (id) => ["self-check", id],
+  careers: ["careers"],
+  career: (id) => ["career", id],
 };
 
 export const getSession = async () => check(Session, await fetchSession());
@@ -55,3 +62,10 @@ export const getSearchAll = async (q) => check(SearchAll, await api(`/search?q=$
 export const getNotes = async (id) => check(NoteList, await api(`/subjects/${id}/notes`));
 export const getNote = async (id, n) => check(Note, await api(`/subjects/${id}/notes/${n}`));
 export const getRoadmap = async (id) => check(Roadmap, await api(`/subjects/${id}/roadmap`));
+export const getOutlook = async (id) => check(Outlook, await api(`/subjects/${id}/outlook`));
+export const getSelfCheck = async (id) => check(SelfCheck, await api(`/subjects/${id}/self-check`));
+export const getCareers = async () => check(CareerList, await api("/career")).goals;
+export const getCareer = async (id) => check(Career, await api(`/career/${id}`));
+export const getTwin = async (id) => check(Twin, await api(`/subjects/${id}/twin`));
+export const getExamples = async (id, topic) => check(ExampleList, await api(`/subjects/${id}/examples?topic_id=${topic}`)).examples;
+export const getActiveJobs = async () => check(ActiveJobs, await api("/jobs/active"));

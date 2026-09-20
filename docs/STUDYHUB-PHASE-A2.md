@@ -17,7 +17,7 @@ and no model is called anywhere in A2.
 | Upload, view, search and remove pages | `studyhub/web/app.py`, `studyhub/web/ui.py` |
 
 Libraries added: `pypdf`, `python-docx`. Originals are kept under `data/uploads/<user id>/<sha256>` (git-ignored).
-Limits (environment-configurable): 20 MB per file, 400 pages, 2,000,000 characters per subject.
+Limits (environment-configurable): 50 MB per file, 1,500 pages, 8,000,000 characters per subject (raised from 20 MB, 400 pages and 2,000,000 on 20 Sept 2026 after real textbooks of 565 to 961 pages were refused).
 
 ## Evidence
 

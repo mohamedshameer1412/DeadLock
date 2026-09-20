@@ -26,6 +26,7 @@ USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{2,31}$")
 MIN_PASSWORD, MAX_PASSWORD = 8, 128
 MAX_FAILS_PER_USER, MAX_FAILS_PER_IP, WINDOW_SECONDS = 5, 20, 15 * 60
 GENERIC_FAILURE = "Invalid username or password."
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 _DUMMY_SALT = os.urandom(16)
 
 
@@ -54,6 +55,15 @@ def check_username(username: str) -> None:
                         "starting with a letter or digit.")
 
 
+def normalise_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def check_email(email: str) -> None:
+    if len(email) > 254 or not EMAIL_RE.match(email):
+        raise AuthError("Enter a valid email address.")
+
+
 def check_password(password: str, username: str = "") -> None:
     if len(password or "") < MIN_PASSWORD:
         raise AuthError(f"Password must be at least {MIN_PASSWORD} characters.")
@@ -63,17 +73,23 @@ def check_password(password: str, username: str = "") -> None:
         raise AuthError("Password must not be the same as the username.")
 
 
-def register(db: sqlite3.Connection, username: str, password: str, now: float | None = None) -> int:
-    """Create an account and return its id."""
+def register(db: sqlite3.Connection, username: str, password: str, now: float | None = None, email: str | None = None) -> int:
+    """Create an account and return its id. `email` is the login address (required by the web app, optional for older callers)."""
     name = normalise_username(username)
     check_username(name)
     check_password(password, name)
+    address = None
+    if email is not None:
+        address = normalise_email(email)
+        check_email(address)
+        if db.execute("SELECT 1 FROM users WHERE lower(email)=?", (address,)).fetchone():
+            raise AuthError("That email is already registered. Log in instead.")
     salt, params = os.urandom(16), _params()
     try:
         cur = db.execute(
-            "INSERT INTO users(username, pw_salt, pw_hash, scrypt_params, created_at) VALUES (?,?,?,?,?)",
+            "INSERT INTO users(username, pw_salt, pw_hash, scrypt_params, created_at, email) VALUES (?,?,?,?,?,?)",
             (name, salt, _derive(password, salt, params), json.dumps(params),
-             time.time() if now is None else now))
+             time.time() if now is None else now, address))
     except sqlite3.IntegrityError:
         raise AuthError("That username is already taken.") from None
     return int(cur.lastrowid)
@@ -97,7 +113,10 @@ def authenticate(db: sqlite3.Connection, username: str, password: str, ip: str =
         raise AuthError("Too many failed attempts. Please wait 15 minutes and try again.")
     password = password or ""
 
-    row = db.execute("SELECT id, pw_salt, pw_hash, scrypt_params FROM users WHERE username=?", (name,)).fetchone()
+    if "@" in name:                                          # the email address is the login; an older account without one still signs in by username
+        row = db.execute("SELECT id, pw_salt, pw_hash, scrypt_params FROM users WHERE lower(email)=? ORDER BY email_verified DESC, id LIMIT 1", (name,)).fetchone()
+    else:
+        row = db.execute("SELECT id, pw_salt, pw_hash, scrypt_params FROM users WHERE username=?", (name,)).fetchone()
     if row is None or len(password) > MAX_PASSWORD:
         _derive(password[:MAX_PASSWORD], _DUMMY_SALT, _params())         # same cost as a real check
         ok = False

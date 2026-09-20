@@ -91,6 +91,16 @@ def throttle_request(db: sqlite3.Connection, email: str, ip: str, now: float | N
         purge(db, now)
 
 
+def throttle_signup(db: sqlite3.Connection, ip: str, now: float | None = None) -> None:
+    """The address-check code sent when an account is created: limited per network address and overall, but it does not start the per-address
+    cooldown, so the student can ask for another code straight away if the first one goes astray."""
+    now = time.time() if now is None else now
+    keys = {"req_ip": ip or "?", "req_all": "*"}
+    _guard(db, REQUEST_LIMITS, keys, now)
+    for kind, key in keys.items():
+        _note(db, kind, key, now)
+
+
 def issue(db: sqlite3.Connection, purpose: str, email: str, user_id: int | None, ip: str, now: float | None = None) -> str:
     """A new code for this address and purpose; any earlier live code stops working."""
     now = time.time() if now is None else now

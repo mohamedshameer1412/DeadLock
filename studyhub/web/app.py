@@ -13,6 +13,7 @@ Security notes
 """
 from __future__ import annotations
 
+import json
 import secrets
 import time
 import threading
@@ -27,7 +28,7 @@ from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 
 from studyhub import auth, ingest, mcq, models, qa, retrieval, settings
 from studyhub import db as studydb
-from studyhub import scoring, quiz_flow, quiz_agents, roadmap
+from studyhub import scoring, quiz_flow, quiz_agents, roadmap, career, tutor
 from studyhub.repo import Repo, SubjectError
 from studyhub.web import api as api_module
 from studyhub.web import ui
@@ -60,6 +61,26 @@ async def _validation_error(request: Request, exc: RequestValidationError):
     if request.url.path.startswith("/api/"):
         return api_module.err(422, "validation", "The request was not understood.")
     return await request_validation_exception_handler(request, exc)
+
+
+@app.exception_handler(Exception)
+async def _unexpected_error(request: Request, exc: Exception):
+    """Never show a bare "Internal Server Error": log what happened (data/server-errors.log) and give the student a reference."""
+    import logging
+    import traceback
+    ref = secrets.token_hex(3)
+    try:
+        from pathlib import Path
+        path = Path(settings.db_path()).parent / "server-errors.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"--- {time.strftime('%Y-%m-%d %H:%M:%S')} ref {ref} {request.method} {request.url.path}\n{''.join(traceback.format_exception(exc))}\n")
+    except Exception:
+        logging.getLogger("uvicorn.error").exception("unexpected error %s", ref)
+    if request.url.path.startswith("/api/"):
+        return api_module.err(500, "server_error", f"Something went wrong on our side. Please try again in a moment. (reference {ref})")
+    from fastapi.responses import PlainTextResponse
+    return PlainTextResponse(f"Something went wrong. Reference {ref}.", status_code=500)
 
 
 # Which models answer a question. A function so tests (and other deployments) can swap it: (db, user) -> (tiers, notes).
@@ -601,6 +622,86 @@ def _process_coach(user_id: int, subject_id: int) -> None:
         store.set_state(run_id, RunState.COMPLETE)
     except Exception:
         store.db.execute("UPDATE study_plans SET coach_status='failed' WHERE subject_id=? AND user_id=?", (subject_id, user_id))
+    finally:
+        store.close()
+
+
+class _SkillOut(BaseModel):
+    skill: str
+    importance: str = "required"
+    quote: str = ""
+
+
+class _SkillsOut(BaseModel):
+    skills: list[_SkillOut]
+
+
+def _process_career(user_id: int, goal_id: int) -> None:
+    """Read the skills out of a job description: the cloud first when the student allowed it, then the local model, then plain rules. Only skills whose quote is really in the text are kept."""
+    from slice.budget import Budget
+    from slice.records import RunState
+    store = studydb.open_db()
+    try:
+        repo = Repo(store.db)
+        user, goal = repo.get_user(user_id), career.get(store.db, user_id, goal_id)
+        if user is None or goal is None:
+            return
+        run_id = store.create_run("career", {"goal_id": goal_id})
+        skills, model = [], None
+        tiers, _notes = tiers_for(store.db, user, "plan")
+        for tier in tiers:
+            try:
+                out = mcq._call(tier, Budget(store, run_id, tier.settings), [{"role": "system", "content": career.SYSTEM},
+                                {"role": "user", "content": career.prompt(goal["title"], goal["jd_text"])}], _SkillsOut, f"career_skills_{tier.name}")
+                skills = career._valid([s.model_dump() for s in out.skills], goal["jd_text"])
+                if skills:
+                    model = tier.model
+                    break
+            except Exception:
+                continue
+        if not skills:
+            skills, model = career.rule_skills(goal["jd_text"]), "rules (no model answered)"
+        store.db.execute("UPDATE career_goals SET status=?, skills_json=?, model=?, updated_at=? WHERE id=? AND user_id=?",
+                         ("done" if skills else "failed", json.dumps(skills), model, time.time(), goal_id, user_id))
+        store.set_state(run_id, RunState.COMPLETE)
+    except Exception:
+        store.db.execute("UPDATE career_goals SET status='failed', updated_at=? WHERE id=? AND user_id=?", (time.time(), goal_id, user_id))
+    finally:
+        store.close()
+
+
+def _process_example(user_id: int, subject_id: int, iid: int) -> None:
+    """Write a worked example from a topic's own passages: the cloud first when the student allowed it, then the local model, then the plain key-passages walk-through."""
+    from slice.budget import Budget
+    from slice.records import RunState
+    store = studydb.open_db()
+    try:
+        repo = Repo(store.db)
+        user, row = repo.get_user(user_id), tutor.get(store.db, user_id, subject_id, iid)
+        if user is None or row is None:
+            return
+        texts = tutor.passages(store.db, subject_id, row["topic_id"])
+        run_id = store.create_run("worked_example", {"subject_id": subject_id, "topic_id": row["topic_id"]})
+        example, model = None, None
+        tiers, _notes = tiers_for(store.db, user, "answer")
+        for tier in tiers:
+            try:
+                out = mcq._call(tier, Budget(store, run_id, tier.settings), [{"role": "system", "content": tutor.SYSTEM},
+                                {"role": "user", "content": tutor.prompt(row["topic"], row["level"], texts)}], tutor.ExampleOut, f"worked_example_{tier.name}")
+                example = tutor.clean_example(out, texts)
+                if example:
+                    model = tier.model
+                    break
+            except Exception:
+                continue
+        if not example:
+            example, model = tutor.key_passages(row["topic"], texts), "rules (no model answered)"
+        now = time.time()
+        store.db.execute("UPDATE interventions SET status=?, payload_json=?, model=?, updated_at=? WHERE id=? AND user_id=?",
+                         ("done" if example else "failed", json.dumps(example or {}), model, now, iid, user_id))
+        store.set_state(run_id, RunState.COMPLETE)
+    except Exception:
+        store.db.execute("UPDATE interventions SET status='failed', updated_at=? WHERE id=? AND user_id=?", (time.time(), iid, user_id))
     finally:
         store.close()
 

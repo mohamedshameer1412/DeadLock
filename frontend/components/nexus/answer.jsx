@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { pageLabel, plural } from "@/lib/utils";
 import { Alert, Badge, Card } from "@/components/ui/primitives";
+import { RunTrace } from "@/components/nexus/run-trace";
 
 export const STATUS = {
   pending: { label: "Working on it", tone: "neutral" },
@@ -114,6 +115,8 @@ export function AnswerView({ q }) {
             </ul>
           </section>
         )}
+
+        <RunTrace steps={q.steps} loop={q.loop} title="How this answer was produced" />
       </div>
 
       <section aria-labelledby="sources-h" className="mt-8 lg:sticky lg:top-20 lg:mt-0">

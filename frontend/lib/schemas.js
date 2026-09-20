@@ -11,7 +11,7 @@ export const SubjectList = z.object({ subjects: z.array(Subject) });
 
 export const Doc = z.object({
   id: z.number(), kind: z.string(), title: z.string(), source: z.string(), pages: z.number().nullable(), status: z.string(),
-  warnings: z.array(z.string()), bytes: z.number(), chunks: z.number(), created_at: z.string(),
+  warnings: z.array(z.string()), bytes: z.number(), chunks: z.number(), created_at: z.string(), role: z.enum(["notes", "syllabus", "pyq"]).optional(),
 });
 export const DocList = z.object({ documents: z.array(Doc) });
 export const Upload = z.object({ document: Doc, duplicate: z.boolean() });
@@ -30,7 +30,8 @@ export const SearchResult = z.object({
 });
 export const Account = z.object({
   user: User, key_configured: z.boolean(), allowed_models: z.array(z.string()),
-  email: z.object({ address: z.string().nullable(), verified: z.boolean(), pending: z.string().nullable(), weekly: z.boolean(), last_digest_at: z.string().nullable(), can_send: z.boolean() }).optional(),
+  academic: z.object({ department: z.string(), semester: z.number().nullable() }).optional(),
+  email: z.object({ login: z.string().nullable().optional(), address: z.string().nullable(), verified: z.boolean(), pending: z.string().nullable(), weekly: z.boolean(), last_digest_at: z.string().nullable(), can_send: z.boolean() }).optional(),
 });
 
 export const Citation = z.object({
@@ -50,16 +51,17 @@ export const QuestionList = z.object({ questions: z.array(QuestionItem) });
 export const QuestionDetail = QuestionItem.extend({
   model: z.string().nullable().optional(), reason: z.string().optional(), kind: z.string().optional(), dropped: z.number().optional(),
   explanation: z.string().optional(), claims: z.array(Claim).optional(), sources: z.array(Source).optional(),
-  verification: z.array(z.string()).optional(), steps: z.array(z.object({ by: z.string(), text: z.string() })).optional(),
+  verification: z.array(z.string()).optional(), steps: z.array(z.object({ by: z.string(), kind: z.string().optional(), text: z.string() })).optional(), loop: z.object({ sent_back: z.number(), rejected: z.number() }).optional(),
 });
 
 // ---- practice (multiple-choice) ----
 export const Mcq = z.object({ id: z.number(), topic_id: z.number().nullable(), topic_path: z.string(), question: z.string(), options: z.array(z.string()), created_at: z.string() });
 export const McqList = z.object({ questions: z.array(Mcq) });
 export const McqStarted = z.object({ id: z.number(), status: z.string() });
+export const ActiveJobs = z.object({ jobs: z.array(z.object({ id: z.number(), subject_id: z.number(), subject: z.string(), count: z.number(), created_at: z.string().nullable() })) });
 export const McqJob = z.object({
   id: z.number(), status: z.string(), purpose: z.string().optional(), scope: z.string(), requested: z.number(), produced: z.number(), rejected: z.number(), reason: z.string().nullable().optional(),
-  model: z.string().nullable().optional(), tier: z.string().nullable().optional(), questions: z.array(Mcq), steps: z.array(z.object({ by: z.string(), text: z.string() })),
+  model: z.string().nullable().optional(), tier: z.string().nullable().optional(), questions: z.array(Mcq), steps: z.array(z.object({ by: z.string(), kind: z.string().optional(), text: z.string() })), loop: z.object({ sent_back: z.number(), rejected: z.number() }).optional(),
 });
 export const McqAnswer = z.object({
   id: z.number(), answer_index: z.number(), answer: z.string(), explanation: z.string(), quote: z.string(), document: z.string().nullable().optional(),
@@ -170,6 +172,61 @@ export const Roadmap = z.object({
   roadmap: z.object({ weeks: z.array(Week), summary: z.object({
     total_minutes: z.number(), weeks: z.number(), shown_weeks: z.number(), hours_per_week: z.number(), lagging: z.number(), unassessed: z.number(),
     target_date: z.string().nullable(), weeks_available: z.number().nullable(), on_track: z.boolean().nullable(), hours_needed: z.number().nullable() }) }),
-  profile: z.object({ goal: z.string(), hours_per_week: z.number(), target_date: z.string().nullable() }),
+  profile: z.object({ goal: z.string(), hours_per_week: z.number(), target_date: z.string().nullable(), exam_date: z.string().nullable().optional(), target_date_source: z.string().nullable().optional() }),
   coach: z.object({ status: z.string(), text: z.string(), from_model: z.boolean(), model: z.string().nullable(), stale: z.boolean(), at: z.string().nullable() }),
 });
+
+// ---- outlook (risk, debt, what-if), self-check, career goals
+const RiskTopic = z.object({ topic_id: z.number(), name: z.string(), score: z.number().nullable(), level: z.string(), reasons: z.array(z.string()), confidence: z.number().nullable() });
+const DebtTopic = z.object({ topic_id: z.number(), name: z.string(), own_minutes: z.number(), blocks: z.array(z.string()), interest_minutes: z.number(), confidence: z.number().nullable(), status: z.string(), repay_first: z.boolean() });
+export const Outlook = z.object({
+  subject: z.string(), target: z.number(), readiness: z.number().nullable(),
+  risk: z.object({ summary: z.object({ score: z.number().nullable(), level: z.string(), assessed: z.number(), unassessed: z.number(), high: z.number(), medium: z.number(), late: z.boolean(), hours_needed: z.number().nullable(), hours_per_week: z.number().nullable() }), topics: z.array(RiskTopic), method: z.string() }),
+  debt: z.object({ total_minutes: z.number(), total_hours: z.number(), topics: z.array(DebtTopic), edges: z.array(z.object({ from: z.number(), to: z.number() })), method: z.string() }),
+  profile: z.object({ hours_per_week: z.number(), target_date: z.string().nullable(), weeks: z.number() }),
+  topics: z.array(z.object({ topic_id: z.number(), name: z.string(), status: z.string() })),
+});
+const SimTopic = z.object({ topic_id: z.number(), name: z.string(), status: z.string(), now: z.number().nullable(), after: z.number().nullable(), minutes_needed: z.number(), minutes_given: z.number(), covered: z.boolean(), focus: z.boolean() });
+const Sim = z.object({ hours_per_week: z.number(), weeks: z.number(), budget_minutes: z.number(), unused_minutes: z.number(), readiness_now: z.number().nullable(), readiness_after: z.number().nullable(), lagging: z.number(), covered: z.number(), target: z.number(), weeks_to_finish: z.number(), topics: z.array(SimTopic) });
+export const WhatIf = z.object({ baseline: Sim, scenario: Sim, why: z.array(z.string()), assumption: z.string() });
+export const SelfCheck = z.object({
+  topics: z.array(z.object({ topic_id: z.number(), name: z.string(), rating: z.number().nullable(), perceived: z.number().nullable(), confidence: z.number().nullable(), answered: z.number(), delta: z.number().nullable(), verdict: z.string() })),
+  counts: z.record(z.string(), z.number()), message: z.string(), labels: z.record(z.string(), z.string()),
+});
+export const CareerList = z.object({ goals: z.array(z.object({ id: z.number(), title: z.string(), status: z.string(), skills: z.number(), created_at: z.string().nullable() })) });
+const CareerSkill = z.object({ skill: z.string(), importance: z.string(), quote: z.string(), status: z.string(), confidence: z.number().nullable(), answered: z.number(), correct: z.number(), topic: z.string().nullable(), subject: z.string().nullable(), subject_id: z.number().nullable(), topic_id: z.number().nullable(), also: z.array(z.string()) });
+export const Career = z.object({
+  id: z.number(), title: z.string(), status: z.string(), model: z.string().nullable(), from_model: z.boolean(), created_at: z.string().nullable(),
+  skills: z.array(CareerSkill),
+  score: z.object({ readiness: z.number().nullable(), verified: z.number(), total: z.number(), counts: z.record(z.string(), z.number()) }),
+  next_steps: z.array(z.object({ skill: z.string(), importance: z.string(), status: z.string(), type: z.string(), title: z.string(), href: z.string(), suggestion: z.string() })),
+  history: z.array(z.object({ at: z.string().nullable(), readiness: z.number().nullable(), verified: z.number(), total: z.number() })),
+});
+
+// ---- learner twin, worked examples
+const Loop = z.object({ state: z.string(), last_kind: z.string().nullable(), last_outcome: z.string().nullable(), change: z.number().nullable(), tries: z.number() });
+const TwinTopic = z.object({
+  topic_id: z.number(), name: z.string(), unit: z.string(), subtopic: z.string(), status: z.string(), confidence: z.number().nullable(), theta: z.number().nullable(), se: z.number().nullable(),
+  answered: z.number(), trend: z.string().nullable(), gap: z.number().nullable(), blocked_by: z.array(z.string()), exam_count: z.number(), exam_weight: z.number(),
+  drift: z.string(), drift_note: z.string().nullable(), days_since: z.number().nullable(), feeling: z.string(), rating: z.number().nullable(),
+  difficulty: z.string(), difficulty_why: z.string(), loop: Loop,
+});
+const Action = z.object({ topic_id: z.number(), topic: z.string(), kind: z.string(), title: z.string(), why: z.array(z.string()), minutes: z.number(), href: z.string(), difficulty: z.string(), difficulty_why: z.string(), fits_this_week: z.boolean(), priority: z.number() });
+export const Twin = z.object({
+  subject: z.string(), target: z.number(), readiness: z.number().nullable(),
+  overall: z.object({ theta: z.number(), se: z.number(), confidence: z.number(), answered: z.number(), correct: z.number() }).nullable(),
+  profile: z.object({ level: z.string().nullable().optional(), goal: z.string(), hours_per_week: z.number(), target_date: z.string().nullable(), exam_date: z.string().nullable().optional(), department: z.string(), semester: z.number().nullable() }),
+  strengths: z.array(z.string()), weaknesses: z.array(z.string()),
+  units: z.array(z.object({ unit: z.string(), topics: z.number(), assessed: z.number(), confidence: z.number().nullable(), answered: z.number(), status: z.string() })),
+  topics: z.array(TwinTopic),
+  patterns: z.object({ patterns: z.array(z.object({ kind: z.string(), topic_id: z.number().nullable(), topic: z.string(), count: z.number(), title: z.string(), detail: z.string() })), recurring: z.number(), answers: z.number(), method: z.string() }),
+  next: z.array(Action),
+  memory: z.array(z.object({ kind: z.string(), label: z.string(), tried: z.number(), improved: z.number(), mean_change: z.number() })),
+  history: z.array(z.object({ id: z.number(), topic_id: z.number(), topic: z.string(), kind: z.string(), status: z.string(), outcome: z.string().nullable(), conf_before: z.number().nullable(), conf_after: z.number().nullable(), created_at: z.string().nullable(), verified_at: z.string().nullable() })),
+  has_past_papers: z.boolean(),
+});
+export const Example = z.object({
+  id: z.number(), topic_id: z.number(), topic: z.string(), status: z.string(), model: z.string().nullable(), level: z.string().nullable(), created_at: z.string().nullable(),
+  example: z.object({ problem: z.string(), steps: z.array(z.object({ text: z.string(), quote: z.string() })), answer: z.string().optional(), check: z.string().optional(), from_model: z.boolean() }).nullable(),
+});
+export const ExampleList = z.object({ examples: z.array(Example) });

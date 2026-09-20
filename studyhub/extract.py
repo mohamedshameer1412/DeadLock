@@ -149,6 +149,28 @@ def _flatten_outline(reader, outline, level: int = 1, out: list | None = None) -
     return out
 
 
+_GENERIC_BOOKMARK = re.compile(r"^(slide|page|pg|p|sheet|folio)\s*[-.:]?\s*\d+$", re.I)
+SLIDE_TOPIC_MIN_CHARS = 1200                                 # a slide-deck topic gathers slides until it holds about this much text
+
+
+def generic_outline(headings: dict[int, list[tuple[int, str]]]) -> bool:
+    """True when the bookmarks are only numbers ("Slide 1", "Page 2"): what PowerPoint and some exporters write, and no help as topic names."""
+    titles = [t for hs in headings.values() for _, t in hs]
+    return bool(titles) and sum(1 for t in titles if _GENERIC_BOOKMARK.match(t.strip())) / len(titles) >= 0.6
+
+
+def slide_title(raw: str) -> str | None:
+    """The first line of a slide or page, when it reads like a title (short, has letters, not a number or a date)."""
+    for line in raw.splitlines():
+        line = " ".join(line.split())
+        if not line:
+            continue
+        if 3 <= len(line) <= 90 and sum(c.isalpha() for c in line) >= 3 and not _GENERIC_BOOKMARK.match(line) and not re.fullmatch(r"[\d\W]+", line):
+            return line
+        return None
+    return None
+
+
 def pdf_paragraphs(text: str) -> list[str]:
     """Paragraphs from one page of pypdf text.
 
@@ -183,8 +205,12 @@ def extract_pdf(filename: str, data: bytes) -> Extracted:
     except Exception:
         headings = {}
 
+    slides = generic_outline(headings)                       # "Slide 1, Slide 2...": name topics from the slides' own titles instead
+    if slides:
+        headings = {}
     blocks: list[Block] = []
     blank_pages = 0
+    since_heading, titled = 0, False
     for i in range(n):
         page_no = i + 1
         for level, title in headings.get(page_no, []):
@@ -195,6 +221,12 @@ def extract_pdf(filename: str, data: bytes) -> Extracted:
             raw = ""
         text = clean(raw, compat=True)
         paras = pdf_paragraphs(text)
+        if slides:
+            title = slide_title(text)
+            if title and (not titled or since_heading >= SLIDE_TOPIC_MIN_CHARS) and (not blocks or blocks[-1].text != title):
+                blocks.append(Block(title, page_no, 1))
+                since_heading, titled = 0, True
+            since_heading += sum(len(p) for p in paras)
         if not paras:
             blank_pages += 1
         blocks.extend(Block(p, page_no) for p in paras)
@@ -206,7 +238,9 @@ def extract_pdf(filename: str, data: bytes) -> Extracted:
                         "so nothing from this file can be searched or quizzed.")
     elif blank_pages:
         warnings.append(f"{blank_pages} of {n} pages contained no selectable text (images or scans) and were skipped.")
-    if not headings and result.chars >= MIN_TEXT_CHARS:
+    if slides and titled:
+        warnings.append("This PDF looks like slides (its bookmarks are just \"Slide 1, Slide 2...\"), so topics are named after the slide titles, several slides per topic.")
+    elif not headings and result.chars >= MIN_TEXT_CHARS:
         warnings.append("This PDF has no outline (bookmarks), so it is treated as a single topic.")
     return result
 

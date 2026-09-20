@@ -7,9 +7,9 @@ import { uploadFile } from "@/lib/api";
 import { check, Upload } from "@/lib/schemas";
 import { keys } from "@/lib/queries";
 import { friendlyError, cn, plural } from "@/lib/utils";
-import { Alert, Progress } from "@/components/ui/primitives";
+import { Alert, Label, Progress, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/primitives";
 
-const MAX_MB = 20;
+const MAX_MB = 50;
 
 /** Accepts PDF, DOCX or TXT (choose or drop). One file at a time, with real upload progress and a per-file result. */
 export default function UploadDropzone({ subjectId }) {
@@ -18,6 +18,7 @@ export default function UploadDropzone({ subjectId }) {
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(null); // { name, pct }
   const [error, setError] = useState("");
+  const [role, setRole] = useState("notes");
 
   async function send(files) {
     setError("");
@@ -28,7 +29,7 @@ export default function UploadDropzone({ subjectId }) {
       }
       setBusy({ name: file.name, pct: 0 });
       try {
-        const r = check(Upload, await uploadFile(`/subjects/${subjectId}/materials`, file, (pct) => setBusy({ name: file.name, pct })));
+        const r = check(Upload, await uploadFile(`/subjects/${subjectId}/materials`, file, (pct) => setBusy({ name: file.name, pct }), { role }));
         if (r.duplicate) toast.info(`“${r.document.title}” is already in this subject.`);
         else toast.success(`Added “${r.document.title}” (${plural(r.document.chunks, "passage")})`);
         await Promise.all([
@@ -47,6 +48,18 @@ export default function UploadDropzone({ subjectId }) {
 
   return (
     <div>
+      <div className="mb-3 sm:max-w-xs">
+        <Label htmlFor="doc-role">This file is</Label>
+        <Select value={role} onValueChange={setRole}>
+          <SelectTrigger id="doc-role"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="notes">Notes or a textbook</SelectItem>
+            <SelectItem value="syllabus">A syllabus</SelectItem>
+            <SelectItem value="pyq">Past exam papers</SelectItem>
+          </SelectContent>
+        </Select>
+        {role === "pyq" && <p className="mt-1 text-xs text-muted">Past papers are not turned into topics. Nexus counts which topics they ask about and studies those first.</p>}
+      </div>
       <label
         htmlFor="file-input"
         onDragOver={(e) => { e.preventDefault(); setDrag(true); }}

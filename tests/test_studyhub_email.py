@@ -198,9 +198,9 @@ def test_weekly_summary_needs_a_verified_address_and_is_rate_limited(env, outbox
     a.req("POST", "/account/digest/send-now")
     a.req("POST", "/account/digest/send-now")
     assert is_error(a.req("POST", "/account/digest/send-now"), 429, "rate_limited")
-    assert a.req("DELETE", "/account/email").status_code == 204
+    assert is_error(a.req("DELETE", "/account/email"), 400, "invalid")                   # the address is the login: it cannot be removed
     acc = a.req("GET", "/account").json()["email"]
-    assert acc["verified"] is False and acc["weekly"] is False
+    assert acc["verified"] is True and acc["weekly"] is True                              # nothing changed: the login address stays
 
 
 def test_the_scheduler_sends_a_summary_only_to_opted_in_verified_users_once_a_week(env, outbox):  # noqa: F811

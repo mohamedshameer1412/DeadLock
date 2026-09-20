@@ -11,6 +11,7 @@ import { friendlyError } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { ChartCard, HBars, Stat, TrendChart } from "@/components/nexus/charts";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
+import { SelfCheck } from "@/components/nexus/self-check";
 import { Alert, Badge, Button, Card, Label, Progress, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton } from "@/components/ui/primitives";
 
 const LEVEL = {
@@ -159,6 +160,8 @@ export default function ProgressPage() {
           {problem && <Alert tone="danger" className="mt-3">{problem}</Alert>}
         </Card>
       </section>
+
+      <SelfCheck id={id} />
 
       <details className="rounded-lg border border-border bg-surface p-4 text-sm">
         <summary className="cursor-pointer font-semibold">How is the confidence score calculated?</summary>

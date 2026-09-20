@@ -450,7 +450,72 @@ MIGRATIONS: list[tuple[int, str]] = [
     INSERT INTO schema_version(v) VALUES (12);
     COMMIT;
     """),
+    (13, """\
+    BEGIN;
+    -- How sure the student feels about a topic (1 to 5), to compare with what their answers show.
+    CREATE TABLE self_ratings (
+        user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_id   INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+        rating     INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        updated_at REAL NOT NULL,
+        PRIMARY KEY (user_id, topic_id)
+    );
+    -- A job description the student wants to be ready for, and the skills read from it.
+    CREATE TABLE career_goals (
+        id          INTEGER PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        title       TEXT NOT NULL,
+        jd_text     TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'failed')),
+        skills_json TEXT NOT NULL DEFAULT '[]',
+        model       TEXT,
+        created_at  REAL NOT NULL,
+        updated_at  REAL NOT NULL
+    );
+    CREATE INDEX career_goals_by_user ON career_goals(user_id, created_at);
+    CREATE TABLE career_snapshots (
+        id        INTEGER PRIMARY KEY,
+        goal_id   INTEGER NOT NULL REFERENCES career_goals(id) ON DELETE CASCADE,
+        at        REAL NOT NULL,
+        readiness REAL,
+        verified  INTEGER NOT NULL,
+        total     INTEGER NOT NULL
+    );
+    CREATE INDEX career_snapshots_by_goal ON career_snapshots(goal_id, at);
+    INSERT INTO schema_version(v) VALUES (13);
+    COMMIT;
+    """),
+    (14, """    BEGIN;
+    -- Academic setup, exam date, what a document is for (notes, syllabus, past papers), and the study actions the student took with what came of them.
+    ALTER TABLE users ADD COLUMN department TEXT NOT NULL DEFAULT '';
+    ALTER TABLE users ADD COLUMN semester INTEGER;
+    ALTER TABLE subjects ADD COLUMN exam_date TEXT;
+    ALTER TABLE documents ADD COLUMN role TEXT NOT NULL DEFAULT 'notes' CHECK (role IN ('notes', 'syllabus', 'pyq'));
+    CREATE TABLE interventions (
+        id              INTEGER PRIMARY KEY,
+        user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        subject_id      INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+        topic_id        INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+        kind            TEXT NOT NULL CHECK (kind IN ('worked_example', 'flashcards', 'revision', 'practice')),
+        status          TEXT NOT NULL DEFAULT 'done' CHECK (status IN ('pending', 'done', 'failed')),
+        payload_json    TEXT NOT NULL DEFAULT '{}',
+        model           TEXT,
+        level           TEXT,
+        conf_before     REAL,
+        answered_before INTEGER NOT NULL DEFAULT 0,
+        outcome         TEXT CHECK (outcome IN ('improved', 'no_change', 'worse')),
+        conf_after      REAL,
+        verified_at     REAL,
+        created_at      REAL NOT NULL,
+        updated_at      REAL NOT NULL
+    );
+    CREATE INDEX interventions_by_topic ON interventions(user_id, subject_id, topic_id, created_at);
+    INSERT INTO schema_version(v) VALUES (14);
+    COMMIT;
+    """),
 ]
+
 
 
 def migrate(db: sqlite3.Connection) -> None:

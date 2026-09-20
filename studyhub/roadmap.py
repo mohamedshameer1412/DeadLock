@@ -19,7 +19,7 @@ import sqlite3
 import time
 from collections import defaultdict
 
-from . import cards, insights
+from . import cards, insights, patterns
 from .repo import Repo
 
 TARGETS = {"new": 0.60, "intermediate": 0.70, "professional": 0.80}
@@ -73,6 +73,7 @@ def skill_gaps(db: sqlite3.Connection, user_id: int, subject_id: int, level: str
     conf = insights.topic_confidence(db, user_id, subject_id)["topics"]
     src = _sources(db, user_id, subject_id)
     topics = [t for t in repo.list_topics(user_id, subject_id) if t["chunks"]]
+    weights = patterns.exam_weights(db, subject_id)
     names = {t["id"]: t["name"] for t in topics}
     gaps: list[dict] = []
     for t in topics:
@@ -104,7 +105,8 @@ def skill_gaps(db: sqlite3.Connection, user_id: int, subject_id: int, level: str
         if blockers:
             reasons.append("Builds on " + ", ".join(b["name"] for b in blockers) + (", which is not solid yet" if len(blockers) == 1 else ", which are not solid yet"))
         gaps.append({"topic_id": t["id"], "name": t["name"], "path": t["path"], "ordinal": t["ordinal"], "status": status, "gap": gap, "confidence": confidence,
-                     "target": target, "answered": answered, "correct": e["correct"] if e else 0, "sources": s, "trend": _trend(db, user_id, subject_id, t["id"]),
+                     "target": target, "answered": answered, "correct": e["correct"] if e else 0, "sources": s,
+                     "exam_count": weights.get(t["id"], {}).get("count", 0), "exam_weight": weights.get(t["id"], {}).get("weight", 0.0), "trend": _trend(db, user_id, subject_id, t["id"]),
                      "blocked_by": blockers, "reasons": reasons, "avg_seconds": e["avg_seconds"] if e else None})
     assessed = [g for g in gaps if g["confidence"] is not None]
     readiness = round(sum(min(1.0, g["confidence"] / target) for g in assessed) / len(gaps), 3) if gaps and assessed else None
@@ -146,7 +148,7 @@ def _order(gaps: list[dict]) -> list[dict]:
                 visit(by_id[b["topic_id"]], depth + 1)
         order.append(g)
 
-    for g in sorted(gaps, key=lambda x: (PRIORITY[x["status"]], x["ordinal"])):
+    for g in sorted(gaps, key=lambda x: (PRIORITY[x["status"]], -x.get("exam_weight", 0.0), x["ordinal"])):
         visit(g)
     return order
 
@@ -211,7 +213,12 @@ def plan_hash(gaps_info: dict, profile: dict) -> str:
 def get_profile(db: sqlite3.Connection, user_id: int, subject_id: int) -> dict:
     r = db.execute("SELECT goal, hours_per_week, target_date, coach_status, coach_text, coach_model, coach_hash, coach_at FROM study_plans WHERE subject_id=? AND user_id=?",
                    (subject_id, user_id)).fetchone()
-    return dict(r) if r else {"goal": "", "hours_per_week": 5.0, "target_date": None, "coach_status": "idle", "coach_text": "", "coach_model": None, "coach_hash": None, "coach_at": None}
+    p = dict(r) if r else {"goal": "", "hours_per_week": 5.0, "target_date": None, "coach_status": "idle", "coach_text": "", "coach_model": None, "coach_hash": None, "coach_at": None}
+    exam = db.execute("SELECT exam_date FROM subjects WHERE id=? AND user_id=?", (subject_id, user_id)).fetchone()
+    p["exam_date"] = exam["exam_date"] if exam else None
+    p["target_date_source"] = "plan" if p["target_date"] else "exam" if p["exam_date"] else None
+    p["target_date"] = p["target_date"] or p["exam_date"]                       # a study date wins; without one the exam date is the deadline
+    return p
 
 
 def save_profile(db: sqlite3.Connection, user_id: int, subject_id: int, goal: str, hours: float, target_date: str | None) -> None:

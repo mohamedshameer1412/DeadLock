@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import settings
 from .chunker import _SENTENCE, ChunkSpec, chunk_blocks
-from .extract import ExtractError, extract, sniff
+from .extract import Block, ExtractError, extract, sniff
 from .repo import Repo
 from . import screen
 
@@ -66,8 +66,13 @@ def quarantine(chunks: list[ChunkSpec]) -> list[ChunkSpec]:
     return out
 
 
-def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str, data: bytes, *, source_url: str | None = None) -> IngestResult:
+ROLES = ("notes", "syllabus", "pyq")
+
+
+def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str, data: bytes, *, source_url: str | None = None, role: str = "notes") -> IngestResult:
     repo = Repo(db)
+    if role not in ROLES:
+        raise IngestError("Choose whether this is notes, a syllabus or past papers.")
     if repo.get_subject(user_id, subject_id) is None:
         raise IngestError("That subject does not exist.")
     if not data:
@@ -87,7 +92,8 @@ def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str,
         raise IngestError(str(e)) from None
     try:
         ex = extract(filename, data)
-        chunks = chunk_blocks(ex.blocks, ex.title) if ex.status == "parsed" else []
+        blocks = [Block(b.text, b.page, 0) for b in ex.blocks] if role == "pyq" else ex.blocks       # a past paper's short numbered lines are questions, not headings
+        chunks = chunk_blocks(blocks, ex.title) if ex.status == "parsed" else []
         status, warnings, title, pages = ex.status, list(ex.warnings), ex.title, ex.pages
     except ExtractError as e:                                # recognised type, unusable content: keep a visible record
         chunks, status, warnings, title, pages = [], "failed", [str(e)], (filename or "upload")[:200], None
@@ -110,7 +116,7 @@ def ingest(db: sqlite3.Connection, user_id: int, subject_id: int, filename: str,
 
     doc_id = repo.store_document(user_id, subject_id, {
         "kind": "url" if source_url else kind, "title": title, "source": (source_url or " ".join((filename or "upload").split()))[:500 if source_url else 200], "sha256": sha,
-        "bytes": len(data), "pages": pages, "status": status, "warnings": warnings}, chunks)
+        "bytes": len(data), "pages": pages, "status": status, "warnings": warnings, "role": role}, chunks)
     if doc_id is None:                                       # lost the subject between the check and the insert
         raise IngestError("That subject does not exist.")
     return IngestResult(doc_id, title, status, len(chunks), len({c.topic_path for c in chunks}), False, warnings)

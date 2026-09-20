@@ -28,9 +28,10 @@ export default function QuizHome() {
   const [mode, setMode] = useState("practice");
   const [limit, setLimit] = useState("none");
   const [agreed, setAgreed] = useState(false);
+  const [adaptive, setAdaptive] = useState(true);
   const [problem, setProblem] = useState("");
   const start = useMutation({
-    mutationFn: () => api(`/subjects/${id}/quiz/attempts`, { method: "POST", json: { topic_id: kind === "standard" && topic ? Number(topic) : null, mode, kind } }),
+    mutationFn: () => api(`/subjects/${id}/quiz/attempts`, { method: "POST", json: { topic_id: kind === "standard" && topic ? Number(topic) : null, mode, kind, adaptive: kind === "standard" && adaptive } }),
     onSuccess: (r) => {
       if (limit !== "none") { try { localStorage.setItem(`nexus.deadline.${r.id}`, String(Date.now() + Number(limit) * 60000)); } catch {} }
       qc.invalidateQueries({ queryKey: keys.quiz(id) }); router.push(`/subjects/${id}/quiz/${r.id}`); },
@@ -104,6 +105,10 @@ export default function QuizHome() {
                   </SelectContent>
                 </Select>
                 <p className="mt-1 text-xs text-muted">{plural(data.questions_in_bank, "question")} in your bank.</p>
+                <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-2 text-sm">
+                  <input type="checkbox" checked={adaptive} onChange={(e) => setAdaptive(e.target.checked)} className="mt-1 h-4 w-4 accent-primary" />
+                  <span><b>Pick the questions for me.</b> Nexus chooses the questions that tell it the most about you right now, favouring topics below your target and topics your past papers ask about.</span>
+                </label>
               </div>
             )}
             <div className="sm:max-w-xs">

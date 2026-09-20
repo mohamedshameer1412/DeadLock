@@ -27,6 +27,8 @@ function Documents({ id }) {
               <Link href={`/subjects/${id}/materials/${d.id}`} className="break-anywhere text-base font-bold no-underline hover:underline">{d.title}</Link>
               <div className="flex flex-wrap gap-1.5">
                 <Badge>{d.kind.toUpperCase()}</Badge>
+                {d.role === "syllabus" && <Badge tone="warning">Syllabus</Badge>}
+                {d.role === "pyq" && <Badge tone="warning">Past papers</Badge>}
                 {d.pages ? <Badge>{plural(d.pages, "page")}</Badge> : null}
                 <Badge>{plural(d.chunks, "passage")}</Badge>
                 {d.status !== "parsed" && <Badge tone="warning">{d.status}</Badge>}

@@ -13,11 +13,11 @@ import time
 import urllib.parse
 from contextlib import contextmanager
 
-from fastapi import APIRouter, BackgroundTasks, File, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
-from studyhub import auth, cards, digest, roadmap as roadmapmod, explain, ingest, insights, mail_templates, mailer, mcq, models, otp, qa, retrieval, settings, webfetch
+from studyhub import auth, cards, career, digest, foresight, patterns, tutor, twin as twinmod, roadmap as roadmapmod, explain, ingest, insights, mail_templates, mailer, mcq, models, otp, qa, retrieval, settings, webfetch
 from studyhub import db as studydb
 from studyhub.repo import Repo, SubjectError
 
@@ -79,7 +79,7 @@ def _int(text) -> int | None:
 # --------------------------------------------------------------------------------------------------- session
 
 def _user_json(u: dict) -> dict:
-    return {"id": u["id"], "username": u["username"], "cloud_consent": bool(u["cloud_consent"])}
+    return {"id": u["id"], "username": u["username"], "cloud_consent": bool(u["cloud_consent"]), "email": u.get("email")}
 
 
 @router.get("/session")
@@ -104,6 +104,7 @@ def me(request: Request):
 
 class Credentials(BaseModel):
     username: str = ""
+    email: str = ""
     password: str = ""
 
 
@@ -120,15 +121,24 @@ def _signed_in_response(db, user_id: int, status: int):
 
 
 @router.post("/register", status_code=201)
-def register(request: Request, body: Credentials):
+def register(request: Request, body: Credentials, background: BackgroundTasks):
     if not _pre_ok(request):
         return err(403, "csrf", "The request was refused. Reload the page and try again.")
+    if not body.email.strip():
+        return err(400, "invalid", "Enter your email address. You will use it to log in.")
+    ip = _ip(request)
     with _db() as db:
         try:
-            uid = auth.register(db, body.username, body.password)
+            uid = auth.register(db, body.username, body.password, email=body.email)
         except auth.AuthError as e:
             return err(400, "invalid", str(e))
         auth.purge_expired(db)
+        address = auth.normalise_email(body.email)
+        try:                                                 # send the address-check code now; the account works without it
+            otp.throttle_signup(db, ip)
+            background.add_task(_mail_code, "verify", address, otp.issue(db, "verify", address, uid, ip), ip)
+        except Exception:
+            pass
         return _signed_in_response(db, uid, 201)
 
 
@@ -139,9 +149,10 @@ def login(request: Request, body: Credentials):
     ip = _ip(request)
     with _db() as db:
         try:
-            uid = auth.authenticate(db, body.username, body.password, ip=ip)
+            uid = auth.authenticate(db, body.email or body.username, body.password, ip=ip)
         except auth.AuthError as e:
-            return err(429 if "Too many" in str(e) else 400, "too_many_attempts" if "Too many" in str(e) else "invalid_login", str(e))
+            msg = "Invalid email or password." if str(e) == auth.GENERIC_FAILURE else str(e)
+            return err(429 if "Too many" in msg else 400, "too_many_attempts" if "Too many" in msg else "invalid_login", msg)
         return _signed_in_response(db, uid, 200)
 
 
@@ -248,7 +259,7 @@ def delete_subject(request: Request, subject_id: str):
 
 def _doc_json(d: dict) -> dict:
     return {"id": d["id"], "kind": d["kind"], "title": d["title"], "source": d["source"], "pages": d["pages"], "status": d["status"],
-            "warnings": d["warnings"], "bytes": d["bytes"], "chunks": d["chunks"], "created_at": iso(d["created_at"])}
+            "warnings": d["warnings"], "bytes": d["bytes"], "chunks": d["chunks"], "created_at": iso(d["created_at"]), "role": d.get("role", "notes")}
 
 
 @router.get("/subjects/{subject_id}/materials")
@@ -259,14 +270,14 @@ def list_materials(request: Request, subject_id: str):
 
 
 @router.post("/subjects/{subject_id}/materials", status_code=201)
-def upload_material(request: Request, subject_id: str, file: UploadFile = File(...)):
+def upload_material(request: Request, subject_id: str, file: UploadFile = File(...), role: str = Form("notes")):
     with _db() as db:
         ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
         if bad:
             return bad
         data = file.file.read(settings.max_upload_bytes() + 1)
         try:
-            r = ingest.ingest(db, ctx.uid, ctx.subject["id"], file.filename or "upload", data)
+            r = ingest.ingest(db, ctx.uid, ctx.subject["id"], file.filename or "upload", data, role=role)
         except ingest.IngestError as e:
             return err(400, "upload_refused", str(e))
         doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], r.document_id)
@@ -275,6 +286,11 @@ def upload_material(request: Request, subject_id: str, file: UploadFile = File(.
 
 class UrlBody(BaseModel):
     url: str = Field(max_length=2000)
+    role: str = "notes"
+
+
+class RoleBody(BaseModel):
+    role: str
 
 
 @router.post("/subjects/{subject_id}/materials/url", status_code=201)
@@ -295,7 +311,7 @@ def add_web_page(request: Request, subject_id: str, body: UrlBody):
             if len(text) < 200:
                 return err(400, "upload_refused", "That page has too little readable text to study from.")
             name = ((title or urllib.parse.urlsplit(final).hostname or "web page")[:150]) + ".txt"
-            r = ingest.ingest(db, ctx.uid, ctx.subject["id"], name, text.encode("utf-8"), source_url=final)
+            r = ingest.ingest(db, ctx.uid, ctx.subject["id"], name, text.encode("utf-8"), source_url=final, role=body.role)
         except (webfetch.FetchError, ingest.IngestError) as e:
             return err(400, "upload_refused", str(e))
         doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], r.document_id)
@@ -377,7 +393,8 @@ def _question_json(ctx: Ctx, d: dict, detail: bool) -> dict:
         "sources": [{"passage_id": s["chunk_id"], "document_id": s.get("document_id"), "document": s["doc_title"], "heading_path": s["heading_path"], "page_start": s["page_start"],
                      "page_end": s["page_end"], "text": s["text"], "matched": s["matched"]} for s in d["sources"]],
         "verification": explain.verification_rows(d["claims"], d["dropped"], trace) if d["status"] == "answered" else [],
-        "steps": [{"by": s["by"], "text": explain.step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace]})
+        "steps": [{"by": s["by"], "kind": s["kind"], "text": explain.step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace],
+        "loop": {"sent_back": sum(1 for s in trace if s["kind"] == "revision"), "rejected": sum(len(s["payload"].get("failed", [])) for s in trace if s["kind"] == "verification")}})
     return out
 
 
@@ -502,7 +519,8 @@ def get_mcq_job(request: Request, subject_id: str, job_id: str):
         return {"id": job["id"], "purpose": job.get("purpose") or "practice", "status": job["status"], "scope": job["scope"], "requested": job["requested"], "produced": job["produced"],
                 "rejected": job["rejected"], "reason": job["reason"], "model": job["model"], "tier": job["tier"],
                 "questions": [_mcq_json(m) for m in items],
-                "steps": [{"by": s["by"], "text": explain.mcq_step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace]}
+                "steps": [{"by": s["by"], "kind": s["kind"], "text": explain.mcq_step_text({"kind": s["kind"], "payload": s["payload"]})} for s in trace],
+                "loop": {"sent_back": sum(1 for s in trace if s["kind"] == "revision"), "rejected": sum(len(s["payload"].get("failed", [])) for s in trace if s["kind"] == "verification")}}
 
 
 @router.get("/subjects/{subject_id}/mcq")
@@ -550,11 +568,12 @@ def account(request: Request):
         if bad:
             return bad
         s = models.slice_config.settings(reload=False)
-        row = db.execute("SELECT email, email_verified, weekly_email, last_digest_at FROM users WHERE id=?", (ctx.uid,)).fetchone()
+        row = db.execute("SELECT email, email_verified, weekly_email, last_digest_at, department, semester FROM users WHERE id=?", (ctx.uid,)).fetchone()
         pending = db.execute("SELECT email FROM email_otps WHERE user_id=? AND purpose='verify' AND consumed_at IS NULL AND expires_at>? ORDER BY id DESC LIMIT 1", (ctx.uid, time.time())).fetchone()
         return {"user": _user_json(ctx.user), "key_configured": bool(s.api_key),
                 "allowed_models": models.allowed_cloud_models() if s.api_key else [],
-                "email": {"address": row["email"] if row["email_verified"] else None, "verified": bool(row["email_verified"]), "pending": pending["email"] if pending else None,
+                "academic": {"department": row["department"], "semester": row["semester"]},
+                "email": {"login": row["email"], "address": row["email"] if row["email_verified"] else None, "verified": bool(row["email_verified"]), "pending": pending["email"] if pending else None,
                           "weekly": bool(row["weekly_email"]), "last_digest_at": iso(row["last_digest_at"]), "can_send": mailer.configured() or mailer.debug_outbox()}}
 
 
@@ -573,11 +592,23 @@ def set_cloud(request: Request, body: CloudBody):
 MAX_QUIZ_ITEMS = 20
 
 
+def _log_action(ctx, topic_id: int, kind: str) -> None:
+    """Remember a study action on a topic that is below target, with its confidence now, so the loop can check later whether it helped."""
+    sid = ctx.subject["id"]
+    if ctx.db.execute("SELECT 1 FROM interventions WHERE user_id=? AND subject_id=? AND topic_id=? AND kind=? AND outcome IS NULL AND created_at>?",
+                      (ctx.uid, sid, topic_id, kind, time.time() - 7 * 86400)).fetchone():
+        return
+    e = insights.topic_confidence(ctx.db, ctx.uid, sid)["topics"].get(topic_id)
+    if e and e["confidence"] < roadmapmod.target_for(ctx.subject.get("level")):
+        tutor.start(ctx.db, ctx.uid, sid, topic_id, kind, e["confidence"], e["answered"])
+
+
 class QuizStartBody(BaseModel):
     topic_id: int | None = None
     mode: str = "practice"                                   # "practice" | "assessment"
     kind: str = "standard"                                   # "standard" | "diagnostic" | "revision"
     job_id: int | None = None                                # a diagnostic made from one generation job
+    adaptive: bool = False                                   # pick the most informative questions for this student instead of a random set
 
 
 class QuizAnswerBody(BaseModel):
@@ -658,6 +689,8 @@ def quiz_start(request: Request, subject_id: str, body: QuizStartBody):
             for i in items:
                 per.setdefault(i["topic_id"], []).append(i)
             items = [x for group in per.values() for x in random.sample(group, min(2, len(group)))]
+        if body.adaptive and body.kind == "standard":
+            items = insights.select_adaptive(db, ctx.uid, sid, items, MAX_QUIZ_ITEMS, roadmapmod.target_for(ctx.subject.get("level")), patterns.exam_weights(db, sid))
         active = ctx.repo.get_active_attempt(ctx.uid, sid)
         if active:                                            # starting a new quiz abandons the unfinished one
             db.execute("UPDATE quiz_attempts SET is_active=0, finished_at=? WHERE id=?", (time.time(), active["id"]))
@@ -668,6 +701,11 @@ def quiz_start(request: Request, subject_id: str, body: QuizStartBody):
         if attempt is None:
             return err(400, "invalid", "That topic is not part of this subject.")
         db.execute("UPDATE quiz_attempts SET mode=?, kind=? WHERE id=? AND user_id=?", (body.mode, body.kind, attempt["id"], ctx.uid))
+        if body.kind == "revision":
+            for t in {i["topic_id"] for i in items[:MAX_QUIZ_ITEMS] if i["topic_id"]}:
+                _log_action(ctx, t, "revision")
+        elif body.kind == "standard" and body.topic_id:
+            _log_action(ctx, body.topic_id, "practice")
         return JSONResponse({"id": attempt["id"], "mode": body.mode, "kind": body.kind}, status_code=201)
 
 
@@ -1163,6 +1201,9 @@ def review_flashcard(request: Request, subject_id: str, item_id: str, body: Revi
         nxt = cards.review(db, ctx.uid, ctx.subject["id"], _int(item_id) or -1, body.grade)
         if nxt is None:
             return err(404 if body.grade in cards.GRADES else 400, "not_found" if body.grade in cards.GRADES else "invalid", "Not found." if body.grade in cards.GRADES else "Unknown rating.")
+        topic = db.execute("SELECT topic_id FROM mcq_items WHERE id=?", (_int(item_id),)).fetchone()
+        if topic and topic["topic_id"]:
+            _log_action(ctx, topic["topic_id"], "flashcards")
         return {"due": iso(nxt["due"]), "interval_days": round(nxt["interval_days"], 2)}
 
 
@@ -1517,12 +1558,12 @@ def verify_email(request: Request, body: CodeBody):
 
 @router.delete("/account/email", status_code=204)
 def remove_email(request: Request):
+    """The email address is how the account is logged into, so it cannot be removed; it can be changed. This turns the weekly summary off."""
     with _db() as db:
         ctx, bad = guard(request, db, mutate=True)
         if bad:
             return bad
-        db.execute("UPDATE users SET email=NULL, email_verified=0, weekly_email=0 WHERE id=?", (ctx.uid,))
-        return Response(status_code=204)
+        return err(400, "invalid", "Your email address is how you log in, so it cannot be removed. Change it to another address instead.")
 
 
 @router.put("/account/weekly")
@@ -1561,6 +1602,7 @@ class PlanProfileBody(BaseModel):
     goal: str = Field(default="", max_length=300)
     hours_per_week: float = Field(default=5.0, ge=1, le=40)
     target_date: str | None = None
+    exam_date: str | None = None                             # None = leave as it is, "" = clear
 
 
 def _roadmap_json(ctx) -> dict:
@@ -1574,7 +1616,8 @@ def _roadmap_json(ctx) -> dict:
         status = "failed"                                          # the worker went away before it finished
     return {"subject": ctx.subject["name"], "level": ctx.subject.get("level"), "target": info["target"], "readiness": info["readiness"], "counts": info["counts"],
             "source_totals": info["source_totals"], "source_labels": roadmapmod.SOURCE_LABELS, "gaps": info["gaps"], "roadmap": plan,
-            "profile": {"goal": profile["goal"], "hours_per_week": profile["hours_per_week"], "target_date": profile["target_date"]},
+            "profile": {"goal": profile["goal"], "hours_per_week": profile["hours_per_week"], "target_date": profile["target_date"], "exam_date": profile["exam_date"],
+                        "target_date_source": profile["target_date_source"]},
             "coach": {"status": status, "text": profile["coach_text"] if profile["coach_text"] else roadmapmod.rule_coach(info, plan),
                       "from_model": bool(profile["coach_text"]) and not (profile["coach_model"] or "").startswith("rules"), "model": profile["coach_model"], "stale": bool(profile["coach_text"]) and profile["coach_hash"] != h,
                       "at": iso(profile["coach_at"])}}
@@ -1601,6 +1644,16 @@ def set_roadmap_profile(request: Request, subject_id: str, body: PlanProfileBody
                 ok = False
             if not ok:
                 return err(400, "invalid", "Choose a date from today on.")
+        if body.exam_date is not None:
+            exam = body.exam_date.strip() or None
+            if exam:
+                try:
+                    ok = time.mktime(time.strptime(exam, "%Y-%m-%d")) > time.time() - 86400
+                except ValueError:
+                    ok = False
+                if not ok:
+                    return err(400, "invalid", "Choose an exam date from today on.")
+            db.execute("UPDATE subjects SET exam_date=? WHERE id=? AND user_id=?", (exam, ctx.subject["id"], ctx.uid))
         roadmapmod.save_profile(db, ctx.uid, ctx.subject["id"], " ".join(body.goal.split()), float(body.hours_per_week), date)
         return _roadmap_json(ctx)
 
@@ -1618,7 +1671,283 @@ def ask_coach(request: Request, subject_id: str):
             return _limited(otp.RateLimited(recent[-6] + 3600 - now))
         otp._note(db, "coach_user", str(ctx.uid), now)
         p = roadmapmod.get_profile(db, ctx.uid, ctx.subject["id"])
-        roadmapmod.save_profile(db, ctx.uid, ctx.subject["id"], p["goal"], p["hours_per_week"], p["target_date"])
+        roadmapmod.save_profile(db, ctx.uid, ctx.subject["id"], p["goal"], p["hours_per_week"], p["target_date"] if p["target_date_source"] == "plan" else None)
         db.execute("UPDATE study_plans SET coach_status='pending', coach_at=? WHERE subject_id=? AND user_id=?", (now, ctx.subject["id"], ctx.uid))
     _app()._submit_task(_app()._process_coach, ctx.uid, ctx.subject["id"])
     return JSONResponse({"status": "pending"}, status_code=202)
+
+
+# --------------------------------------------------------------------------------------------- outlook: what-if, risk, debt, self-check
+
+class WhatIfBody(BaseModel):
+    hours_per_week: float = Field(default=5.0, ge=1, le=40)
+    weeks: int = Field(default=4, ge=1, le=foresight.MAX_WEEKS)
+    focus: list[int] = Field(default_factory=list, max_length=10)
+
+
+class SelfCheckBody(BaseModel):
+    ratings: dict[int, int] = Field(default_factory=dict, max_length=200)
+
+
+def _gaps(ctx):
+    profile = roadmapmod.get_profile(ctx.db, ctx.uid, ctx.subject["id"])
+    info = roadmapmod.skill_gaps(ctx.db, ctx.uid, ctx.subject["id"], ctx.subject.get("level"))
+    plan = roadmapmod.build(info, ctx.subject["id"], profile["hours_per_week"], profile["target_date"])
+    return profile, info, plan
+
+
+def _base_weeks(s: dict) -> int:
+    return s["weeks_available"] or min(max(1, s["weeks"]), foresight.MAX_WEEKS)
+
+
+@router.get("/subjects/{subject_id}/outlook")
+def outlook(request: Request, subject_id: str):
+    """Risk score, learning debt and the numbers the what-if page starts from."""
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        profile, info, plan = _gaps(ctx)
+        s = plan["summary"]
+        return {"subject": ctx.subject["name"], "target": info["target"], "readiness": info["readiness"], "risk": foresight.risk(info, s), "debt": foresight.debt(info),
+                "profile": {"hours_per_week": profile["hours_per_week"], "target_date": profile["target_date"], "weeks": _base_weeks(s)},
+                "topics": [{"topic_id": g["topic_id"], "name": g["name"], "status": g["status"]} for g in info["gaps"]]}
+
+
+@router.post("/subjects/{subject_id}/whatif")
+def what_if(request: Request, subject_id: str, body: WhatIfBody):
+    """Compare a different plan (hours, weeks, topics first) with the current one. Nothing is saved."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        profile, info, plan = _gaps(ctx)
+        return foresight.what_if(info, profile["hours_per_week"], _base_weeks(plan["summary"]), body.hours_per_week, body.weeks, body.focus)
+
+
+@router.get("/subjects/{subject_id}/self-check")
+def get_self_check(request: Request, subject_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        info = roadmapmod.skill_gaps(db, ctx.uid, ctx.subject["id"], ctx.subject.get("level"))
+        return foresight.self_check(info, foresight.get_ratings(db, ctx.uid, ctx.subject["id"]))
+
+
+@router.put("/subjects/{subject_id}/self-check")
+def put_self_check(request: Request, subject_id: str, body: SelfCheckBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        foresight.save_ratings(db, ctx.uid, ctx.subject["id"], body.ratings)
+        info = roadmapmod.skill_gaps(db, ctx.uid, ctx.subject["id"], ctx.subject.get("level"))
+        return foresight.self_check(info, foresight.get_ratings(db, ctx.uid, ctx.subject["id"]))
+
+
+# ------------------------------------------------------------------------------------------------------------- career goals
+
+class CareerBody(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    text: str = Field(min_length=40, max_length=career.MAX_TEXT * 2)
+
+
+def _career_json(db, uid: int, goal: dict) -> dict:
+    skills = json.loads(goal["skills_json"] or "[]")
+    status = goal["status"]
+    if status == "pending" and goal["updated_at"] < time.time() - 1800:
+        status = "failed"                                                # the worker went away before it finished
+    out = {"id": goal["id"], "title": goal["title"], "status": status, "model": goal["model"], "from_model": bool(goal["model"]) and not (goal["model"] or "").startswith("rules"),
+           "created_at": iso(goal["created_at"]), "skills": [], "score": career.score([]), "next_steps": [], "history": []}
+    if status == "done":
+        assessed = career.assess(db, uid, skills)
+        sc = career.score(assessed)
+        career.snapshot(db, goal["id"], sc["readiness"], sc["verified"], sc["total"])
+        out.update(skills=assessed, score=sc, next_steps=career.next_steps(assessed), history=[{**h, "at": iso(h["at"])} for h in career.history(db, goal["id"])])
+    return out
+
+
+@router.get("/career")
+def career_list(request: Request):
+    with _db() as db:
+        ctx, bad = guard(request, db)
+        if bad:
+            return bad
+        return {"goals": [{"id": g["id"], "title": g["title"], "status": g["status"], "skills": len(json.loads(g["skills_json"] or "[]")), "created_at": iso(g["created_at"])}
+                          for g in career.listing(db, ctx.uid)]}
+
+
+@router.post("/career", status_code=202)
+def career_create(request: Request, body: CareerBody):
+    """Save a job description and have its skills read out in the background."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        now = time.time()
+        recent = otp._events(db, "career_user", str(ctx.uid), 3600, now)
+        if len(recent) >= 8:
+            return _limited(otp.RateLimited(recent[-8] + 3600 - now))
+        if len(career.listing(db, ctx.uid)) >= 20:
+            return err(400, "limit", "You can keep up to 20 career goals. Delete one to add another.")
+        text = career.clean_text(body.text)
+        if len(text) < 40:
+            return err(400, "invalid", "Paste the job description text (at least a few lines).")
+        otp._note(db, "career_user", str(ctx.uid), now)
+        gid = career.create(db, ctx.uid, " ".join(body.title.split()), text)
+    _app()._submit_task(_app()._process_career, ctx.uid, gid)
+    return JSONResponse({"id": gid, "status": "pending"}, status_code=202)
+
+
+@router.get("/career/{goal_id}")
+def career_get(request: Request, goal_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db)
+        if bad:
+            return bad
+        goal = career.get(db, ctx.uid, _int(goal_id) or -1)
+        return _career_json(db, ctx.uid, goal) if goal else err(404, "not_found", "Not found.")
+
+
+@router.delete("/career/{goal_id}")
+def career_delete(request: Request, goal_id: str):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        n = db.execute("DELETE FROM career_goals WHERE id=? AND user_id=?", (_int(goal_id) or -1, ctx.uid)).rowcount
+        return {"ok": True} if n else err(404, "not_found", "Not found.")
+
+
+# ---------------------------------------------------------------------------------- academic setup, document role, the twin, worked examples
+
+class AcademicBody(BaseModel):
+    department: str = Field(default="", max_length=80)
+    semester: int | None = Field(default=None, ge=1, le=12)
+
+
+@router.put("/account/academic")
+def set_academic(request: Request, body: AcademicBody):
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        dept = " ".join(body.department.split())
+        db.execute("UPDATE users SET department=?, semester=? WHERE id=?", (dept, body.semester, ctx.uid))
+        return {"department": dept, "semester": body.semester}
+
+
+@router.patch("/subjects/{subject_id}/materials/{doc_id}/role")
+def set_doc_role(request: Request, subject_id: str, doc_id: str, body: RoleBody):
+    """Say what a document is for: notes to study from, a syllabus, or past papers (used to see what is asked most). Changing it does not re-read the file."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        if body.role not in ingest.ROLES:
+            return err(400, "invalid", "Choose notes, syllabus or past papers.")
+        doc = ctx.repo.get_document(ctx.uid, ctx.subject["id"], _int(doc_id) or -1)
+        if doc is None:
+            return err(404, "not_found", "Not found.")
+        if body.role == "pyq" and doc["role"] != "pyq":
+            return err(400, "invalid", "Choose past papers when you add the file, so its headings are not turned into topics.")
+        db.execute("UPDATE documents SET role=? WHERE id=? AND subject_id=?", (body.role, doc["id"], ctx.subject["id"]))
+        return _doc_json({**doc, "role": body.role})
+
+
+@router.get("/subjects/{subject_id}/twin")
+def learner_twin(request: Request, subject_id: str):
+    """One picture of the learner for this subject, and the planner's next steps."""
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        profile, info, plan = _gaps(ctx)
+        u = db.execute("SELECT department, semester FROM users WHERE id=?", (ctx.uid,)).fetchone()
+        return twinmod.build(db, ctx.uid, ctx.subject, profile, dict(u), plan, info)
+
+
+class ExampleBody(BaseModel):
+    topic_id: int
+
+
+def _example_json(row: dict) -> dict:
+    payload = json.loads(row["payload_json"] or "{}")
+    status = row["status"]
+    if status == "pending" and row["updated_at"] < time.time() - 1800:
+        status = "failed"
+    return {"id": row["id"], "topic_id": row["topic_id"], "topic": row["topic"], "status": status, "model": row["model"], "level": row["level"], "example": payload or None,
+            "created_at": iso(row["created_at"])}
+
+
+@router.post("/subjects/{subject_id}/examples", status_code=202)
+def make_example(request: Request, subject_id: str, body: ExampleBody):
+    """Write a worked example for one topic, from that topic's own passages (in the background)."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True, subject_id=subject_id)
+        if bad:
+            return bad
+        sid = ctx.subject["id"]
+        if not tutor.passages(db, sid, body.topic_id, 1):
+            return err(404, "not_found", "Not found.")
+        now = time.time()
+        recent = otp._events(db, "example_user", str(ctx.uid), 3600, now)
+        if len(recent) >= 10:
+            return _limited(otp.RateLimited(recent[-10] + 3600 - now))
+        otp._note(db, "example_user", str(ctx.uid), now)
+        e = insights.topic_confidence(db, ctx.uid, sid)["topics"].get(body.topic_id)
+        iid = tutor.start(db, ctx.uid, sid, body.topic_id, "worked_example", e["confidence"] if e else None, e["answered"] if e else 0,
+                          status="pending", level=ctx.subject.get("level"), dedupe=False)
+    _app()._submit_task(_app()._process_example, ctx.uid, sid, iid)
+    return JSONResponse({"id": iid, "status": "pending"}, status_code=202)
+
+
+@router.get("/subjects/{subject_id}/examples")
+def list_examples(request: Request, subject_id: str, topic_id: int | None = None):
+    with _db() as db:
+        ctx, bad = guard(request, db, subject_id=subject_id)
+        if bad:
+            return bad
+        sql = ("SELECT i.*, t.name AS topic FROM interventions i JOIN topics t ON t.id=i.topic_id WHERE i.user_id=? AND i.subject_id=? AND i.kind='worked_example'"
+               + (" AND i.topic_id=?" if topic_id is not None else "") + " ORDER BY i.created_at DESC, i.id DESC LIMIT 20")
+        args = [ctx.uid, ctx.subject["id"]] + ([topic_id] if topic_id is not None else [])
+        return {"examples": [_example_json(dict(r)) for r in db.execute(sql, args)]}
+
+
+# ------------------------------------------------------------------------------------------------ profile and running jobs
+
+class ProfileBody(BaseModel):
+    username: str
+
+
+@router.put("/account/profile")
+def set_profile(request: Request, body: ProfileBody):
+    """Change the name shown in the top bar."""
+    with _db() as db:
+        ctx, bad = guard(request, db, mutate=True)
+        if bad:
+            return bad
+        name = auth.normalise_username(body.username)
+        try:
+            auth.check_username(name)
+        except auth.AuthError as e:
+            return err(400, "invalid", str(e))
+        try:
+            db.execute("UPDATE users SET username=? WHERE id=?", (name, ctx.uid))
+        except Exception:
+            return err(409, "username_taken", "That name is already taken.")
+        return {"username": name}
+
+
+@router.get("/jobs/active")
+def active_jobs(request: Request):
+    """Question-writing jobs still running, across all subjects, so the app can tell the student when one finishes wherever they are."""
+    with _db() as db:
+        ctx, bad = guard(request, db)
+        if bad:
+            return bad
+        ctx.repo.expire_pending_mcq_jobs(3600)
+        rows = db.execute("SELECT j.id, j.subject_id, s.name AS subject, j.requested AS count, j.created_at FROM mcq_jobs j JOIN subjects s ON s.id=j.subject_id "
+                          "WHERE j.user_id=? AND s.user_id=? AND j.status='pending' ORDER BY j.id", (ctx.uid, ctx.uid)).fetchall()
+        return {"jobs": [{"id": r["id"], "subject_id": r["subject_id"], "subject": r["subject"], "count": r["count"], "created_at": iso(r["created_at"])} for r in rows]}

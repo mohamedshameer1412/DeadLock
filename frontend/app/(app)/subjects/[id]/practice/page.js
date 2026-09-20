@@ -1,4 +1,5 @@
 "use client";
+import { RunTrace } from "@/components/nexus/run-trace";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -7,10 +8,11 @@ import { toast } from "sonner";
 import { Wand2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { check, McqStarted } from "@/lib/schemas";
-import { getDocs, getMcq, getMcqJob, getSubject, getTopics, keys } from "@/lib/queries";
+import { getActiveJobs, getDocs, getMcq, getMcqJob, getSubject, getTopics, keys } from "@/lib/queries";
 import { friendlyError, plural } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { JobProgress } from "@/components/nexus/answer";
+import { askToBeNotified } from "@/components/nexus/job-watcher";
 import McqCard from "@/components/nexus/mcq-card";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
 import { Alert, Button, Card, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton , Checkbox } from "@/components/ui/primitives";
@@ -26,12 +28,19 @@ function Generator({ id, topics }) {
   const [startedAt, setStartedAt] = useState(() => new Date().toISOString());
   const start = useMutation({
     mutationFn: () => api(`/subjects/${id}/mcq/jobs`, { method: "POST", json: { topic_id: topic ? Number(topic) : null, count: Number(count) } }),
-    onSuccess: (r) => { setStartedAt(new Date().toISOString()); setJobId(check(McqStarted, r).id); setError(""); },
-    onError: (e) => setError(friendlyError(e)),
+    onMutate: () => askToBeNotified(),
+    onSuccess: (r) => { setStartedAt(new Date().toISOString()); setJobId(check(McqStarted, r).id); setError(""); qc.invalidateQueries({ queryKey: keys.activeJobs }); },
+    onError: (e) => { setError(friendlyError(e)); if (e.code === "too_many_pending") qc.invalidateQueries({ queryKey: keys.activeJobs }); },
   });
+  // Coming back to this page (or another tab of the app) while questions are still being written: pick the running job up again.
+  const active = useQuery({ queryKey: keys.activeJobs, queryFn: getActiveJobs, retry: false });
+  useEffect(() => {
+    const mine = active.data?.jobs.find((j) => String(j.subject_id) === String(id));
+    if (mine && jobId === null) { setJobId(mine.id); if (mine.created_at) setStartedAt(mine.created_at); }
+  }, [active.data, id, jobId]);
   const job = useQuery({
     queryKey: keys.mcqJob(id, jobId), queryFn: () => getMcqJob(id, jobId), enabled: jobId !== null,
-    refetchInterval: (query) => (query.state.data?.status === "pending" ? 2500 : false),
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 2500 : false), refetchIntervalInBackground: true,
   });
   const status = job.data?.status;
   useEffect(() => {
@@ -74,6 +83,7 @@ function Generator({ id, topics }) {
       <p className="mt-2 text-xs text-muted">Each question must quote your material word for word, and its answer is checked a second time before you see it. Nexus keeps only questions that pass.</p>
       {error && <Alert tone="danger" className="mt-3">{error}</Alert>}
       {running && jobId !== null && <div className="mt-4"><JobProgress createdAt={startedAt} what="Writing and checking questions…" /></div>}
+      {d && status !== "pending" && <RunTrace steps={d.steps} loop={d.loop} title="What happened in this run" />}
       {d && status !== "pending" && (
         <Alert tone={d.produced > 0 ? "success" : "warning"} className="mt-4">
           {d.produced > 0

@@ -269,3 +269,47 @@ def diagnosis(db: sqlite3.Connection, user_id: int, subject_id: int, attempt_id:
             "by_difficulty": {k: {"correct": v[0], "answered": v[1]} for k, v in by.items()},
             "weakest": mine[:3], "strongest": [t for t in reversed(mine) if t["confidence"] >= 0.55][:3],
             "answered": len(rows), "correct": sum(int(r["is_correct"]) for r in rows)}
+
+
+# ------------------------------------------------------------------------------------------------ adaptive selection
+
+def information(theta: float, b: float) -> float:
+    """Fisher information of a 3PL item at ability theta: how much answering it would teach us about the student."""
+    p = p_correct(theta, b)
+    return (DISC ** 2) * ((1 - p) / p) * ((p - GUESS) / (1 - GUESS)) ** 2
+
+
+def select_adaptive(db: sqlite3.Connection, user_id: int, subject_id: int, items: list[dict], n: int, target: float = 0.7,
+                    weights: dict[int, dict] | None = None, rng: random.Random | None = None) -> list[dict]:
+    """Choose n questions that are most informative at the student's current ability on each topic, favouring topics below target and topics that
+    past papers ask about. A question answered before counts less, and no topic takes more than half the quiz. Same ability, same picks (ties aside)."""
+    rng = rng or random.Random()
+    weights = weights or {}
+    conf = topic_confidence(db, user_id, subject_id)["topics"]
+    table = _difficulty_table(_rows(db, user_id, subject_id))
+    scored = []
+    for it in items:
+        e = conf.get(it["topic_id"])
+        theta = e["theta"] if e else 0.0
+        seen, correct, _ = table.get(it["id"], (0, 0, 0.0))
+        b = PRIOR_B.get(it.get("difficulty"), 0.0)
+        if seen:
+            q = min(max(((correct + 1) / (seen + 2) - GUESS) / (1 - GUESS), 0.1), 0.9)
+            b = (2 * b + seen * -math.log(q / (1 - q))) / (2 + seen)
+        gap = max(0.0, target - e["confidence"]) if e else 0.25
+        w = (1 + gap * 2) * (1 + 2 * weights.get(it["topic_id"], {}).get("weight", 0)) * (0.6 if seen else 1.0)
+        scored.append((information(theta, b) * w * (1 + rng.random() * 0.05), it))
+    scored.sort(key=lambda x: -x[0])
+    cap, taken, chosen = max(2, -(-n // 2)), defaultdict(int), []
+    for _, it in scored:
+        if len(chosen) >= n:
+            break
+        if taken[it["topic_id"]] < cap:
+            taken[it["topic_id"]] += 1
+            chosen.append(it)
+    for _, it in scored:                                                    # a small subject: fill the rest whatever the cap
+        if len(chosen) >= n:
+            break
+        if it not in chosen:
+            chosen.append(it)
+    return chosen

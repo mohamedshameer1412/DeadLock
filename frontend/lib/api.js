@@ -52,7 +52,7 @@ export async function api(path, { method = "GET", json, form, signal } = {}) {
 }
 
 /** Upload one file with progress (fetch cannot report upload progress). Resolves with the parsed JSON body. */
-export function uploadFile(path, file, onProgress) {
+export function uploadFile(path, file, onProgress, fields = {}) {
   return new Promise(async (resolve, reject) => {
     if (!csrfToken) await fetchSession();
     const xhr = new XMLHttpRequest();
@@ -71,6 +71,7 @@ export function uploadFile(path, file, onProgress) {
     xhr.onerror = () => reject(new ApiError(0, "network", "Could not reach the server."));
     const form = new FormData();
     form.append("file", file);
+    for (const [k, v] of Object.entries(fields)) form.append(k, v);
     xhr.send(form);
   });
 }

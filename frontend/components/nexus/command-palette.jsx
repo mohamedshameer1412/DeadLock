@@ -3,7 +3,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Bookmark, CornerDownLeft, LayoutDashboard, LibraryBig, Search, User } from "lucide-react";
+import { Bookmark, Briefcase, CornerDownLeft, LayoutDashboard, LibraryBig, Search, User } from "lucide-react";
 import { getSubjects, keys } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { SECTIONS } from "@/components/nexus/nav-data";
@@ -21,6 +21,7 @@ export function CommandPalette({ open, onOpenChange }) {
       { label: "Dashboard", hint: "Page", href: "/dashboard", Icon: LayoutDashboard },
       { label: "All subjects", hint: "Page", href: "/subjects", Icon: LibraryBig },
       { label: "Saved answers", hint: "Page", href: "/saved", Icon: Bookmark },
+      { label: "Career goals", hint: "Page", href: "/career", Icon: Briefcase },
       { label: "Account", hint: "Page", href: "/account", Icon: User },
     ];
     for (const s of subjects ?? []) {

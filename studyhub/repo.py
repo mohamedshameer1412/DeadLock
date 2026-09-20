@@ -25,7 +25,7 @@ class Repo:
 
     # ------------------------------------------------------------------ users
     def get_user(self, user_id: int) -> dict | None:
-        row = self.db.execute("SELECT id, username, cloud_consent, created_at FROM users WHERE id=?",
+        row = self.db.execute("SELECT id, username, cloud_consent, created_at, email, email_verified FROM users WHERE id=?",
                               (user_id,)).fetchone()
         return dict(row) if row else None
 
@@ -47,13 +47,13 @@ class Repo:
         return int(cur.lastrowid)
 
     def list_subjects(self, user_id: int) -> list[dict]:
-        rows = self.db.execute("SELECT id, name, description, created_at, level FROM subjects WHERE user_id=? "
+        rows = self.db.execute("SELECT id, name, description, created_at, level, exam_date FROM subjects WHERE user_id=? "
                                "ORDER BY name COLLATE NOCASE", (user_id,)).fetchall()
         return [dict(r) for r in rows]
 
     def get_subject(self, user_id: int, subject_id: int) -> dict | None:
         """None if it does not exist OR belongs to someone else - the caller cannot tell which."""
-        row = self.db.execute("SELECT id, name, description, created_at, level FROM subjects WHERE id=? AND user_id=?",
+        row = self.db.execute("SELECT id, name, description, created_at, level, exam_date FROM subjects WHERE id=? AND user_id=?",
                               (subject_id, user_id)).fetchone()
         return dict(row) if row else None
 
@@ -95,14 +95,15 @@ class Repo:
         self.db.execute("BEGIN")
         try:
             cur = self.db.execute(
-                "INSERT INTO documents(subject_id, kind, title, source, sha256, bytes, pages, status, warnings, created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO documents(subject_id, kind, title, source, sha256, bytes, pages, status, warnings, created_at, role) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (subject_id, doc["kind"], doc["title"], doc["source"], doc["sha256"], doc["bytes"], doc["pages"],
-                 doc["status"], json.dumps(doc["warnings"]), time.time()))
+                 doc["status"], json.dumps(doc["warnings"]), time.time(), doc.get("role", "notes")))
             doc_id = int(cur.lastrowid)
             topic_ids: dict[str, int] = {}
+            past_paper = doc.get("role") == "pyq"                       # past papers are evidence of what is asked, not topics to study
             for ordinal, ch in enumerate(chunks):
-                if ch.topic_path not in topic_ids:
+                if not past_paper and ch.topic_path not in topic_ids:
                     row = self.db.execute("SELECT id FROM topics WHERE subject_id=? AND path=?",
                                           (subject_id, ch.topic_path)).fetchone()
                     if row:
@@ -117,7 +118,7 @@ class Repo:
                 self.db.execute(
                     "INSERT INTO chunks(subject_id, document_id, topic_id, ordinal, page_start, page_end, heading_path, "
                     "text, sha256, quarantined, flag_reason) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (subject_id, doc_id, topic_ids[ch.topic_path], ordinal, ch.page_start, ch.page_end,
+                    (subject_id, doc_id, None if past_paper else topic_ids[ch.topic_path], ordinal, ch.page_start, ch.page_end,
                      ch.heading_path, ch.text, ch.sha256, 1 if ch.flags else 0, "; ".join(ch.flags)[:300]))
             self.db.execute("COMMIT")
         except BaseException:
@@ -127,7 +128,7 @@ class Repo:
 
     def list_documents(self, user_id: int, subject_id: int) -> list[dict]:
         rows = self.db.execute(
-            "SELECT d.id, d.kind, d.title, d.source, d.pages, d.status, d.warnings, d.bytes, d.created_at, "
+            "SELECT d.id, d.kind, d.title, d.source, d.pages, d.status, d.warnings, d.bytes, d.created_at, d.role, "
             "(SELECT COUNT(*) FROM chunks c WHERE c.document_id=d.id) AS chunks "
             "FROM documents d JOIN subjects s ON s.id=d.subject_id "
             "WHERE d.subject_id=? AND s.user_id=? ORDER BY d.created_at DESC, d.id DESC", (subject_id, user_id)).fetchall()
@@ -135,7 +136,7 @@ class Repo:
 
     def get_document(self, user_id: int, subject_id: int, document_id: int) -> dict | None:
         row = self.db.execute(
-            "SELECT d.id, d.kind, d.title, d.source, d.pages, d.status, d.warnings, d.bytes, d.sha256, d.created_at, "
+            "SELECT d.id, d.kind, d.title, d.source, d.pages, d.status, d.warnings, d.bytes, d.sha256, d.created_at, d.role, "
             "(SELECT COUNT(*) FROM chunks c WHERE c.document_id=d.id) AS chunks "
             "FROM documents d JOIN subjects s ON s.id=d.subject_id "
             "WHERE d.id=? AND d.subject_id=? AND s.user_id=?", (document_id, subject_id, user_id)).fetchone()

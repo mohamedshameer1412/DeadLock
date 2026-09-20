@@ -32,7 +32,7 @@ class Api:
         self.csrf = self.c.get(f"{API}/session").json()["csrf"]
 
     def register(self, name="alice", pw=PW):
-        r = self.c.post(f"{API}/register", json={"username": name, "password": pw}, headers={"X-CSRF-Token": self.csrf})
+        r = self.c.post(f"{API}/register", json={"username": name, "email": f"{name}@example.com", "password": pw}, headers={"X-CSRF-Token": self.csrf})
         if r.status_code == 201:
             self.csrf = r.json()["csrf"]
         return r

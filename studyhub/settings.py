@@ -23,16 +23,16 @@ def upload_dir() -> str:
 
 
 def max_upload_bytes() -> int:
-    return int(os.environ.get("STUDYHUB_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+    return int(os.environ.get("STUDYHUB_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 
 
 def max_pages() -> int:
-    return int(os.environ.get("STUDYHUB_MAX_PAGES", "400"))
+    return int(os.environ.get("STUDYHUB_MAX_PAGES", "1500"))
 
 
 def max_subject_chars() -> int:
     """Total characters of material one subject may hold."""
-    return int(os.environ.get("STUDYHUB_MAX_SUBJECT_CHARS", str(2_000_000)))
+    return int(os.environ.get("STUDYHUB_MAX_SUBJECT_CHARS", str(8_000_000)))
 
 
 def qa_inline() -> bool:

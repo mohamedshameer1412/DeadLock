@@ -1,6 +1,6 @@
-import AuthForm from "@/components/nexus/auth-form";
+import AuthScreen from "@/components/nexus/auth-screen";
 
-export const metadata = { title: "Log in" };
+export const metadata = { title: "Sign in" };
 export default function LoginPage() {
-  return <AuthForm mode="login" />;
+  return <AuthScreen initial="login" />;
 }

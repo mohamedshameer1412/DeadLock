@@ -38,10 +38,11 @@ function Profile({ id, data }) {
   const qc = useQueryClient();
   const [goal, setGoal] = useState(data.profile.goal);
   const [hoursPerWeek, setHours] = useState(String(data.profile.hours_per_week));
-  const [date, setDate] = useState(data.profile.target_date ?? "");
+  const [date, setDate] = useState(data.profile.target_date_source === "plan" ? (data.profile.target_date ?? "") : "");
+  const [exam, setExam] = useState(data.profile.exam_date ?? "");
   const [problem, setProblem] = useState("");
   const save = useMutation({
-    mutationFn: () => api(`/subjects/${id}/roadmap/profile`, { method: "PUT", json: { goal, hours_per_week: Number(hoursPerWeek), target_date: date || null } }),
+    mutationFn: () => api(`/subjects/${id}/roadmap/profile`, { method: "PUT", json: { goal, hours_per_week: Number(hoursPerWeek), target_date: date || null, exam_date: exam } }),
     onSuccess: (r) => { qc.setQueryData(keys.roadmap(id), r); setProblem(""); toast.success("Roadmap updated"); },
     onError: (e) => setProblem(friendlyError(e)),
   });
@@ -50,7 +51,7 @@ function Profile({ id, data }) {
     <Card className="no-print">
       <h2 className="text-lg font-bold">Your study profile</h2>
       <p className="mt-1 text-sm text-muted">The roadmap is fitted to the time you have. Your level (<b>{data.level ? { new: "new learner", intermediate: "intermediate", professional: "professional" }[data.level] : "not chosen"}</b>) sets the target: <b>{pc(data.target)}%</b> confidence in every topic.</p>
-      <form className="mt-3 grid gap-3 sm:grid-cols-[1fr_9rem_11rem_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); setProblem(""); save.mutate(); }}>
+      <form className="mt-3 grid gap-3 sm:grid-cols-[1fr_9rem_11rem_11rem_auto] sm:items-end" onSubmit={(e) => { e.preventDefault(); setProblem(""); save.mutate(); }}>
         <div><Label htmlFor="goal">Goal (optional)</Label><Input id="goal" value={goal} maxLength={300} onChange={(e) => setGoal(e.target.value)} placeholder="e.g. pass the unit test" /></div>
         <div>
           <Label htmlFor="hpw">Hours per week</Label>
@@ -59,7 +60,8 @@ function Profile({ id, data }) {
             <SelectContent>{[1, 2, 3, 5, 8, 12, 20, 30].map((h) => <SelectItem key={h} value={String(h)}>{h} {h === 1 ? "hour" : "hours"}</SelectItem>)}</SelectContent>
           </Select>
         </div>
-        <div><Label htmlFor="target-date">Target date (optional)</Label><Input id="target-date" type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} /></div>
+        <div><Label htmlFor="exam-date">Exam date</Label><Input id="exam-date" type="date" min={today} value={exam} onChange={(e) => setExam(e.target.value)} /></div>
+        <div><Label htmlFor="target-date">Finish by (optional)</Label><Input id="target-date" type="date" min={today} value={date} onChange={(e) => setDate(e.target.value)} /></div>
         <Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Update plan"}</Button>
       </form>
       {problem && <Alert tone="danger" className="mt-3">{problem}</Alert>}

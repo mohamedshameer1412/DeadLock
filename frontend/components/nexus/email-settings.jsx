@@ -12,7 +12,7 @@ import { Alert, Button, Card, Checkbox, Input, Label } from "@/components/ui/pri
 export function EmailSettings({ info }) {
   const qc = useQueryClient();
   const refresh = () => qc.invalidateQueries({ queryKey: keys.account });
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(info.login ?? "");
   const [code, setCode] = useState("");
   const [problem, setProblem] = useState("");
   const [wait, setWait] = useState(0);
@@ -45,15 +45,11 @@ export function EmailSettings({ info }) {
     onSuccess: () => toast.success("Sent. Check your inbox."),
     onError: (e) => toast.error(friendlyError(e)),
   });
-  const remove = useMutation({
-    mutationFn: () => api("/account/email", { method: "DELETE" }),
-    onSuccess: () => { toast.success("Email removed"); refresh(); },
-    onError: (e) => toast.error(friendlyError(e)),
-  });
 
   return (
     <Card className="mt-6">
-      <h2 className="text-lg font-bold">Email</h2>
+      <h2 className="text-lg font-bold">Email and sign-in</h2>
+      {info.login && <p className="mt-1 text-sm">You sign in with <b className="break-anywhere">{info.login}</b>{info.verified ? "." : ". It is not verified yet."}</p>}
       <p className="mt-1 text-sm">A verified email lets you reset a forgotten password with a one-time code, and lets Nexus send you a weekly summary if you want one. It is never shown to anyone or used for anything else.</p>
       {!info.can_send && <Alert tone="warning" className="mt-3">The server has no email account set up yet, so codes cannot be sent. An administrator adds it in the server settings (.env).</Alert>}
 
@@ -66,8 +62,16 @@ export function EmailSettings({ info }) {
           </label>
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" size="sm" onClick={() => now.mutate()} disabled={now.isPending || !info.can_send}><Send className="h-4 w-4" aria-hidden="true" /> {now.isPending ? "Sending…" : "Send this week’s summary now"}</Button>
-            <Button variant="ghost" size="sm" onClick={() => remove.mutate()} disabled={remove.isPending}>Remove this email</Button>
           </div>
+          <details className="rounded-md border border-border p-3 text-sm">
+            <summary className="cursor-pointer font-semibold">Change my email address</summary>
+            <form onSubmit={(e) => { e.preventDefault(); setProblem(""); sendCode.mutate(email.trim()); }} className="mt-3 max-w-sm space-y-3">
+              <p className="text-muted">A code is sent to the new address. Your login changes to it only after you enter the code.</p>
+              <div><Label htmlFor="acc-email-new">New email address</Label><Input id="acc-email-new" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} /></div>
+              {problem && <Alert tone="danger">{problem}</Alert>}
+              <Button type="submit" size="sm" disabled={sendCode.isPending || wait > 0 || !info.can_send}>{sendCode.isPending ? "Sending…" : wait > 0 ? `Wait ${wait} s` : "Send a verification code"}</Button>
+            </form>
+          </details>
         </div>
       ) : (
         <div className="mt-3 max-w-sm space-y-3">
