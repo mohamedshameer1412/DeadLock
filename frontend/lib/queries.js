@@ -1,5 +1,5 @@
 import { api, fetchSession } from "@/lib/api";
-import { Account, Dashboard, Report, Revision, DocDetail, McqAnswer, McqJob, McqList, Progress, QuizHome, QuizResult, QuizState, DocList, QuestionDetail, QuestionList, SearchResult, Session, SubjectList, Subject, TopicList, check } from "@/lib/schemas";
+import { Account, Dashboard, Flashcards, Report, Revision, Saved, SearchAll, DocDetail, McqAnswer, McqJob, McqList, Progress, QuizHome, QuizResult, QuizState, DocList, QuestionDetail, QuestionList, SearchResult, Session, SubjectList, Subject, TopicList, check } from "@/lib/schemas";
 
 export const keys = {
   session: ["session"],
@@ -19,6 +19,9 @@ export const keys = {
   result: (id, a) => ["result", id, a],
   progress: (id) => ["progress", id],
   dashboard: ["dashboard"],
+  saved: ["saved"],
+  flashcards: (id) => ["flashcards", id],
+  searchAll: (q) => ["search-all", q],
   revision: (id) => ["revision", id],
   report: (id) => ["report", id],
 };
@@ -43,3 +46,6 @@ export const getProgress = async (id) => check(Progress, await api(`/subjects/${
 export const getDashboard = async () => check(Dashboard, await api("/dashboard"));
 export const getRevision = async (id) => check(Revision, await api(`/subjects/${id}/revision`));
 export const getReport = async (id) => check(Report, await api(`/subjects/${id}/report`));
+export const getSaved = async () => check(Saved, await api("/saved"));
+export const getFlashcards = async (id) => check(Flashcards, await api(`/subjects/${id}/flashcards`));
+export const getSearchAll = async (q) => check(SearchAll, await api(`/search?q=${encodeURIComponent(q)}`));

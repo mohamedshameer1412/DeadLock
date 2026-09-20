@@ -116,6 +116,12 @@ export default function PracticePage() {
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
           <h2 id="bank-h" className="text-lg font-bold">Your questions ({bank.data.length})</h2>
           {bank.data.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <Button asChild size="sm"><Link href={`/subjects/${id}/practice/flashcards`}>Flashcards (spaced repetition)</Link></Button>
+              <Button asChild size="sm" variant="secondary"><a href={`/api/v1/subjects/${id}/mcq.csv`} download>Export CSV</a></Button>
+            </div>
+          )}
+          {bank.data.length > 0 && (
             <div className="w-full sm:w-64">
               <Label htmlFor="filter">Show topic</Label>
               <Select value={filter || "all"} onValueChange={(val) => setFilter(val === "all" ? "" : val)}>

@@ -109,6 +109,12 @@ export default function AskPage() {
               <p>Ask me anything about <b className="break-anywhere">{subject?.name ?? "this subject"}</b>. I answer only from your uploaded materials, show the exact words I used, and say so when they do not cover your question.</p>
               {items.length === 0 && (topics.data?.length ?? 0) > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
+                  {topics.data.slice(0, 2).map((t) => (
+                    <button key={`sum-${t.id}`} type="button" className="min-h-11 rounded-full border border-border bg-background px-3 text-sm text-link hover:bg-surface-2"
+                      onClick={() => { setDraft(`Summarise the main points of "${t.name}" using only my materials.`); document.getElementById("question")?.focus(); }}>
+                      Summarise {t.name}
+                    </button>
+                  ))}
                   {topics.data.slice(0, 3).map((t) => (
                     <button key={t.id} type="button" className="min-h-11 rounded-full border border-border bg-background px-3 text-sm text-link hover:bg-surface-2"
                       onClick={() => { setDraft(`What is ${t.name}?`); document.getElementById("question")?.focus(); }}>

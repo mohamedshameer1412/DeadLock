@@ -2,7 +2,7 @@ import "./globals.css";
 import Providers from "@/components/providers";
 
 export const metadata = { title: { default: "Nexus", template: "%s · Nexus" }, description: "Study from your own materials, with answers you can check." };
-export const viewport = { width: "device-width", initialScale: 1 };
+export const viewport = { width: "device-width", initialScale: 1, themeColor: "#1561ad" };
 // Rendered per request so the middleware's CSP nonce is applied to Next's own scripts.
 export const dynamic = "force-dynamic";
 

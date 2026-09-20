@@ -33,7 +33,7 @@ const BASE = process.env.BASE || "http://127.0.0.1:3000";
   });
   const base = page.url().replace(/\/materials$/, "");
   execFileSync(py, [path.join(__dirname, "seed-mcq.py"), "Check"], { cwd: root, env: { ...process.env, PYTHONPATH: root } });
-  for (const p of ["/dashboard", "/subjects", "/account", base + "/materials", base + "/ask", base + "/practice", base + "/quiz", base + "/progress"]) {
+  for (const p of ["/dashboard", "/subjects", "/account", "/saved", "/search?q=queue", base + "/materials", base + "/ask", base + "/practice", base + "/practice/flashcards", base + "/quiz", base + "/progress", base + "/report"]) {
     await step(p, async () => { await page.goto(p.startsWith("http") ? p : BASE + p); await page.waitForLoadState("networkidle"); await page.waitForTimeout(600); });
   }
   await step("start assessment", async () => {

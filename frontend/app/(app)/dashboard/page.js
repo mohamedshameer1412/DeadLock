@@ -7,6 +7,7 @@ import { plural } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { ActivityChart, ChartCard, Donut, HBars, Stat, StackedBar, TrendChart } from "@/components/nexus/charts";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
+import { Onboarding, StreakCard } from "@/components/nexus/study-widgets";
 import { Button, Skeleton } from "@/components/ui/primitives";
 
 const pct = (c, n) => (n ? Math.round((100 * c) / n) : null);
@@ -48,6 +49,9 @@ export default function DashboardPage() {
         <Stat label="Quizzes taken" value={t.quizzes} Icon={GraduationCap} />
         <Stat label="Quiz accuracy" value={accuracy === null ? "–" : `${accuracy}%`} hint={t.answered ? `${t.correct} of ${t.answered} answers` : "no quiz answers yet"} Icon={Target} />
       </div>
+
+      <Onboarding totals={t} firstSubjectId={d.subjects[0]?.id} />
+      {d.streak && <div className="mt-6"><StreakCard streak={d.streak} /></div>}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-3">
         <ChartCard

@@ -1,13 +1,73 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { Download, Trash2 } from "lucide-react";
+import { api, fetchSession } from "@/lib/api";
 import { getAccount, keys } from "@/lib/queries";
 import { friendlyError } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
 import { ErrorState, useLogout } from "@/components/nexus/shell";
-import { Button, Card, Checkbox, Skeleton } from "@/components/ui/primitives";
+import { Alert, Button, Card, Checkbox, Dialog, DialogClose, DialogContent, DialogTrigger, Input, Label, Skeleton } from "@/components/ui/primitives";
+
+function ChangePassword() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [again, setAgain] = useState("");
+  const [problem, setProblem] = useState("");
+  const save = useMutation({
+    mutationFn: () => api("/account/password", { method: "POST", json: { current, new: next } }),
+    onSuccess: () => { setCurrent(""); setNext(""); setAgain(""); setProblem(""); toast.success("Password changed. Your other devices were signed out."); },
+    onError: (e) => setProblem(friendlyError(e)),
+  });
+  return (
+    <Card className="mt-6">
+      <h2 className="text-lg font-bold">Change password</h2>
+      <form className="mt-3 max-w-sm space-y-3" onSubmit={(e) => { e.preventDefault(); setProblem(""); if (next !== again) return setProblem("The two new passwords are not the same."); save.mutate(); }}>
+        <div><Label htmlFor="pw-current">Current password</Label><Input id="pw-current" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required /></div>
+        <div><Label htmlFor="pw-new">New password</Label><Input id="pw-new" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} required /></div>
+        <div><Label htmlFor="pw-again">New password again</Label><Input id="pw-again" type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} required /></div>
+        {problem && <Alert tone="danger">{problem}</Alert>}
+        <Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Change password"}</Button>
+      </form>
+    </Card>
+  );
+}
+
+function DeleteAccount() {
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [problem, setProblem] = useState("");
+  const del = useMutation({
+    mutationFn: () => api("/account/delete", { method: "POST", json: { password, confirm } }),
+    onSuccess: async () => { qc.clear(); await fetchSession(); toast.success("Your account and all its data were deleted."); router.replace("/login"); },
+    onError: (e) => setProblem(friendlyError(e)),
+  });
+  return (
+    <Card className="mt-6 border-danger">
+      <h2 className="text-lg font-bold text-danger">Delete my account</h2>
+      <p className="mt-1 text-sm">Permanently removes every subject, uploaded file, question, quiz and score, then the account itself. This cannot be undone. Download your data first if you want a copy.</p>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) { setPassword(""); setConfirm(""); setProblem(""); } }}>
+        <DialogTrigger asChild><Button variant="danger" className="mt-3"><Trash2 className="h-4 w-4" aria-hidden="true" /> Delete my account…</Button></DialogTrigger>
+        <DialogContent title="Delete your account?" description="Everything you uploaded and every score will be erased for good.">
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); setProblem(""); del.mutate(); }}>
+            <div><Label htmlFor="del-pw">Your password</Label><Input id="del-pw" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></div>
+            <div><Label htmlFor="del-word">Type DELETE to confirm</Label><Input id="del-word" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="off" required /></div>
+            {problem && <Alert tone="danger">{problem}</Alert>}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <DialogClose asChild><Button type="button" variant="secondary">Cancel</Button></DialogClose>
+              <Button type="submit" variant="danger" disabled={del.isPending || confirm !== "DELETE" || !password}>{del.isPending ? "Deleting…" : "Delete everything"}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
 
 export default function AccountPage() {
   useTitle("Account");
@@ -39,6 +99,16 @@ export default function AccountPage() {
           <span className="text-sm font-semibold">Allow cloud models as a fallback for my questions</span>
         </label>
       </Card>
+
+      <ChangePassword />
+
+      <Card className="mt-6">
+        <h2 className="text-lg font-bold">Your data</h2>
+        <p className="mt-1 text-sm">Download everything the account holds (subjects, the text of your materials, questions, practice questions, quizzes and answers) as one file.</p>
+        <Button asChild variant="secondary" className="mt-3"><a href="/api/v1/account/export" download><Download className="h-4 w-4" aria-hidden="true" /> Download my data (JSON)</a></Button>
+      </Card>
+
+      <DeleteAccount />
       <div className="mt-6"><Button variant="secondary" onClick={logout}>Log out</Button></div>
     </div>
   );

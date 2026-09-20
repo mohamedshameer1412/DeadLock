@@ -152,6 +152,31 @@ export default function QuizRun() {
   };
   const guard = useAssessment(id, aid, assessment, finished, end);
   const face = useFaceWatch({ on: assessment, onViolation: end });
+
+  // Optional time limit (chosen when the quiz was started): counts down, warns at one minute, ends the quiz at zero.
+  const [left, setLeft] = useState(null);
+  useEffect(() => {
+    let deadline = null;
+    try { deadline = Number(localStorage.getItem(`nexus.deadline.${aid}`)) || null; } catch {}
+    if (!deadline) return undefined;
+    const tick = async () => {
+      const secs = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+      setLeft(secs);
+      if (secs === 60) toast.warning("One minute left.", { id: "time-left" });
+      if (secs === 0 && !finished.current) {
+        clearInterval(timer);
+        finished.current = true;
+        if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        toast.info("Time is up. The quiz has ended.");
+        try { await api(`/subjects/${id}/quiz/attempts/${aid}/finish`, { method: "POST" }); } catch {}
+        await qc.invalidateQueries({ queryKey: keys.quiz(id) });
+        router.replace(`/subjects/${id}/quiz/${aid}/result`);
+      }
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+    return () => clearInterval(timer);
+  }, [aid, id, qc, router]);
   useEffect(() => {
     if (st?.state !== "complete") return;
     finished.current = true; // leaving full screen now is not an event
@@ -195,7 +220,7 @@ export default function QuizRun() {
         </div>
       )}
       <div className="mb-4">
-        <p className="text-sm font-semibold">Question {st.position} of {st.total_questions}</p>
+        <p className="flex items-center justify-between text-sm font-semibold"><span>Question {st.position} of {st.total_questions}</span>{left !== null && <span aria-live="off" className={left <= 60 ? "text-danger" : ""}>Time left {String(Math.floor(left / 60)).padStart(2, "0")}:{String(left % 60).padStart(2, "0")}</span>}</p>
         <Progress value={pct} aria-label="Quiz progress" className="mt-1" />
       </div>
       <Mcq key={st.item.answer_row_id} id={id} aid={aid} st={st} refresh={refresh} />

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CheckCircle2, ExternalLink, Sparkles, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Bookmark, BookmarkCheck, CheckCircle2, Download, ExternalLink, Sparkles, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { getQuestion, keys } from "@/lib/queries";
 import { cn, friendlyError, plural } from "@/lib/utils";
@@ -143,6 +143,31 @@ function PassagesBody({ q }) {
   );
 }
 
+/** The answer as a Markdown file: the question, each statement with its [n] markers, and the exact quotes with where they are from. */
+function answerMarkdown(q) {
+  const { list, numberOf } = numberCitations(q.claims ?? []);
+  const lines = [`# ${q.question}`, ""];
+  if (q.status === "answered") {
+    for (const c of q.claims) lines.push(`${c.text} ${c.citations.map((x) => `[${numberOf(x)}]`).join("")}`.trim(), "");
+    lines.push("## Sources", "");
+    list.forEach((x, i) => lines.push(`[${i + 1}] > ${x.quote}`, `    ${x.document}${x.heading_path ? ` · section: ${x.heading_path}` : ""}${x.page_start != null ? ` · page ${x.page_start}` : ""}`, ""));
+  } else {
+    lines.push(q.reason || "Not answered from your materials.", "");
+    (q.sources ?? []).forEach((s) => lines.push(`> ${s.text}`, `    ${s.document}${s.heading_path ? ` · section: ${s.heading_path}` : ""}`, ""));
+  }
+  lines.push("_Exported from Nexus. The quotes were checked against the uploaded material._");
+  return lines.join("\n");
+}
+
+function downloadText(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 /** One exchange: the student's question, then Nexus's reply (typing, answer with evidence, or an honest "not answered"). */
 export function ChatTurn({ subjectId, item, onDelete }) {
   const qc = useQueryClient();
@@ -154,6 +179,11 @@ export function ChatTurn({ subjectId, item, onDelete }) {
   const feedback = useMutation({
     mutationFn: (value) => api(`/subjects/${subjectId}/questions/${item.id}/feedback`, { method: "POST", json: { value } }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: keys.question(subjectId, item.id) }); toast.success("Thanks, noted"); },
+    onError: (e) => toast.error(friendlyError(e)),
+  });
+  const bookmark = useMutation({
+    mutationFn: (saved) => api(`/subjects/${subjectId}/questions/${item.id}/saved`, { method: "PUT", json: { saved } }),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: keys.question(subjectId, item.id) }); qc.invalidateQueries({ queryKey: keys.saved }); toast.success(r.saved ? "Saved" : "Removed from saved"); },
     onError: (e) => toast.error(friendlyError(e)),
   });
   return (
@@ -175,6 +205,8 @@ export function ChatTurn({ subjectId, item, onDelete }) {
               </>
             )}
             <span className="ml-auto flex items-center">
+              <button type="button" onClick={() => bookmark.mutate(!q.saved)} aria-pressed={!!q.saved} aria-label={q.saved ? "Remove from saved answers" : "Save this answer"} className={cn("inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2", q.saved && "bg-accent text-link")}>{q.saved ? <BookmarkCheck className="h-4 w-4" aria-hidden="true" /> : <Bookmark className="h-4 w-4" aria-hidden="true" />}</button>
+              <button type="button" onClick={() => downloadText(`nexus-answer-${item.id}.md`, answerMarkdown(q))} aria-label="Download this answer with its sources" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><Download className="h-4 w-4" aria-hidden="true" /></button>
               <Link href={`/subjects/${subjectId}/ask/${item.id}`} aria-label="Open full view" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><ExternalLink className="h-4 w-4" aria-hidden="true" /></Link>
               <button type="button" onClick={() => onDelete(item)} aria-label="Delete this question" className="inline-flex h-11 w-11 items-center justify-center rounded-md hover:bg-surface-2"><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
             </span>

@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { getQuiz, getRevision, getSubject, keys } from "@/lib/queries";
 import { friendlyError, plural } from "@/lib/utils";
 import { useTitle } from "@/lib/use-title";
+import { CameraCheck } from "@/components/nexus/camera-check";
 import { EmptyState, ErrorState } from "@/components/nexus/shell";
 import { Alert, Badge, Button, Card, Label, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton , Checkbox } from "@/components/ui/primitives";
 
@@ -25,11 +26,14 @@ export default function QuizHome() {
   const [kind, setKind] = useState("standard");
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState("practice");
+  const [limit, setLimit] = useState("none");
   const [agreed, setAgreed] = useState(false);
   const [problem, setProblem] = useState("");
   const start = useMutation({
     mutationFn: () => api(`/subjects/${id}/quiz/attempts`, { method: "POST", json: { topic_id: kind === "standard" && topic ? Number(topic) : null, mode, kind } }),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: keys.quiz(id) }); router.push(`/subjects/${id}/quiz/${r.id}`); },
+    onSuccess: (r) => {
+      if (limit !== "none") { try { localStorage.setItem(`nexus.deadline.${r.id}`, String(Date.now() + Number(limit) * 60000)); } catch {} }
+      qc.invalidateQueries({ queryKey: keys.quiz(id) }); router.push(`/subjects/${id}/quiz/${r.id}`); },
     onError: (e) => { setProblem(friendlyError(e)); if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {}); },
   });
 
@@ -102,6 +106,17 @@ export default function QuizHome() {
                 <p className="mt-1 text-xs text-muted">{plural(data.questions_in_bank, "question")} in your bank.</p>
               </div>
             )}
+            <div className="sm:max-w-xs">
+              <Label htmlFor="quiz-limit">Time limit</Label>
+              <Select value={limit} onValueChange={setLimit}>
+                <SelectTrigger id="quiz-limit"><SelectValue placeholder="No limit" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No limit</SelectItem>
+                  {[5, 10, 15, 30].map((m) => <SelectItem key={m} value={String(m)}>{m} minutes</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted">When time runs out the quiz ends; unanswered questions are not counted.</p>
+            </div>
             <fieldset>
               <legend className="mb-2 text-sm font-semibold">Mode</legend>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -120,6 +135,7 @@ export default function QuizHome() {
               <Alert tone="info">
                 <p className="font-semibold">Before you start, please read this.</p>
                 <p className="mt-1">Nexus opens full screen and turns on your camera. The camera picture is checked inside your browser only: it is never uploaded or saved. The assessment <b>ends at once</b> if you leave the page or full screen, if no face is visible for 6 seconds, or if more than one face is visible for 3 seconds. Copying, pasting and right-click are blocked. Questions you have not answered by then are not counted. It cannot see other devices or photos of your screen, and it is not a score of what you know or of honesty.</p>
+                <CameraCheck />
                 <label className="mt-2 flex min-h-11 cursor-pointer items-center gap-2">
                   <Checkbox id="agree-checkbox" checked={agreed} onCheckedChange={(checked) => setAgreed(!!checked)} />
                   <span>I understand and allow the camera</span>

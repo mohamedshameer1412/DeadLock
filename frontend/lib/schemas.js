@@ -39,7 +39,7 @@ export const Source = z.object({
   page_end: z.number().nullable(), text: z.string(), matched: z.array(z.string()),
 });
 export const QuestionItem = z.object({
-  id: z.number(), question: z.string(), status: z.string(), tier: z.string().nullable().optional(), feedback: z.string().nullable().optional(),
+  id: z.number(), question: z.string(), status: z.string(), tier: z.string().nullable().optional(), feedback: z.string().nullable().optional(), saved: z.boolean().optional(),
   created_at: z.string(),
 });
 export const QuestionList = z.object({ questions: z.array(QuestionItem) });
@@ -109,6 +109,18 @@ export const Report = z.object({
 });
 
 // ---- dashboard ----
+export const Saved = z.object({ saved: z.array(z.object({ id: z.number(), subject_id: z.number(), subject: z.string(), question: z.string(), status: z.string(), created_at: z.string() })) });
+export const Flashcards = z.object({
+  cards: z.array(z.object({ item_id: z.number(), question: z.string(), options: z.array(z.string()), topic: z.string(), is_new: z.boolean() })),
+  total: z.number(), due: z.number(), new: z.number(), next_due: z.string().nullable(),
+});
+export const SearchAll = z.object({
+  query: z.string(), terms: z.array(z.string()),
+  results: z.array(z.object({
+    subject_id: z.number(), subject: z.string(), passage_id: z.number(), document_id: z.number(), document: z.string(), heading_path: z.string(),
+    page_start: z.number().nullable(), page_end: z.number().nullable(), text: z.string(), matched: z.array(z.string()),
+  })),
+});
 export const Dashboard = z.object({
   totals: z.object({ subjects: z.number(), materials: z.number(), questions: z.number(), practice_questions: z.number(), quizzes: z.number(), answered: z.number(), correct: z.number() }),
   subjects: z.array(z.object({ id: z.number(), name: z.string(), materials: z.number(), questions: z.number(), practice_questions: z.number(), quizzes: z.number(), answered: z.number(), correct: z.number() })),
@@ -118,6 +130,7 @@ export const Dashboard = z.object({
   question_outcomes: z.object({ answered: z.number(), extractive: z.number(), abstained: z.number(), failed: z.number(), pending: z.number() }),
   feedback: z.object({ helpful: z.number(), wrong: z.number() }),
   weak_topics: z.array(z.object({ topic_id: z.number(), subject_id: z.number(), subject: z.string(), name: z.string(), answered: z.number(), correct: z.number(), mastery: z.number(), state: z.string() })),
+  streak: z.object({ days: z.number(), today: z.number(), goal: z.number() }).optional(),
 });
 
 /** @template T @param {import('zod').ZodType<T>} schema @param {unknown} data @returns {T} */

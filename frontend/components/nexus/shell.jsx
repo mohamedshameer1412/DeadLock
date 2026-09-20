@@ -3,7 +3,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, User } from "lucide-react";
+import { LogOut, Menu, PanelLeftClose, PanelLeftOpen, Search, User } from "lucide-react";
+import { CommandPalette } from "@/components/nexus/command-palette";
 import { DesktopSidebar, MobileDrawer } from "@/components/nexus/sidebar";
 import { Logo } from "@/components/nexus/logo";
 import { api, fetchSession } from "@/lib/api";
@@ -41,6 +42,12 @@ export function AppShell({ children }) {
   const desktop = useDesktop();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem("nexus.sidebar") === "collapsed"; } catch { return false; } });
   const [drawer, setDrawer] = useState(false);
+  const [palette, setPalette] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setPalette((o) => !o); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const logout = useLogout();
   useEffect(() => setDrawer(false), [pathname]);
   const toggle = () => {
@@ -74,6 +81,11 @@ export function AppShell({ children }) {
               <Logo />
             </Link>
           </div>
+          <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setPalette(true)} className="text-white hover:bg-white hover:text-[#1360B2]" aria-label="Search and jump (Ctrl K)" aria-keyshortcuts="Control+K">
+            <Search className="h-5 w-5" aria-hidden="true" />
+            <span className="hidden text-xs sm:inline">Ctrl K</span>
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" aria-label={`Account menu for ${session.user.username}`}>
@@ -90,8 +102,10 @@ export function AppShell({ children }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          </div>
         </div>
       </header>
+      <CommandPalette open={palette} onOpenChange={setPalette} />
       {desktop ? <DesktopSidebar collapsed={collapsed} /> : <MobileDrawer open={drawer} onOpenChange={setDrawer} />}
       <div className={collapsed ? "lg:pl-16" : "lg:pl-64"}>
         <main id="main" className="mx-auto max-w-5xl px-4 pb-28 pt-6 sm:pb-10">
