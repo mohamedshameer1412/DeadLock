@@ -573,23 +573,23 @@ def _tiers(world, monkeypatch, task="answer"):
 def test_build_tiers_puts_the_cloud_first_by_default_with_the_local_model_as_backup_and_caps_output_at_1200(world, monkeypatch):
     tiers, notes = _tiers(world, monkeypatch)
     assert [t.name for t in tiers] == ["cloud", "cloud", "local"] and notes == []
-    assert [t.model for t in tiers[:2]] == ["qwen/qwen3.7-flash", "openai/gpt-oss-120b"]              # the answer order, at most two cloud models
+    assert [t.model for t in tiers[:2]] == ["mistralai/mistral-small-3.2-24b-instruct", "openai/gpt-oss-120b"]              # the answer order, at most two cloud models
     assert all(t.settings.max_tokens == 1200 and t.on_usage is not None and t.settings.llm_provider == "openrouter" for t in tiers[:2])
     assert tiers[2].settings.llm_provider == "ollama"
 
 
 def test_each_kind_of_work_gets_its_own_cloud_models_and_simple_checks_go_local_first(world, monkeypatch):
     write, _ = _tiers(world, monkeypatch, "write")
-    assert [t.model for t in write[:2]] == ["openai/gpt-oss-120b", "qwen/qwen3.7-flash"] and write[-1].name == "local"
+    assert [t.model for t in write[:2]] == ["mistralai/mistral-small-3.2-24b-instruct", "openai/gpt-oss-120b"] and write[-1].name == "local"
     plan, _ = _tiers(world, monkeypatch, "plan")
-    assert plan[0].model == "qwen/qwen3.7-flash" and plan[1].model == "deepseek/deepseek-v4-flash-0731"
+    assert plan[0].model == "mistralai/mistral-small-3.2-24b-instruct" and plan[1].model == "z-ai/glm-5.3-flash"
     simple, _ = _tiers(world, monkeypatch, "simple")
-    assert [t.name for t in simple] == ["local", "cloud", "cloud"] and simple[1].model == "inclusionai/ling-3.0-flash"
+    assert [t.name for t in simple] == ["local", "cloud", "cloud"] and simple[1].model == "mistralai/mistral-small-3.2-24b-instruct"
     monkeypatch.setenv("STUDYHUB_PRIMARY", "local")
     assert [t.name for t in _tiers(world, monkeypatch)[0]] == ["local", "cloud", "cloud"]              # the old order is one setting away
     monkeypatch.delenv("STUDYHUB_PRIMARY")
     monkeypatch.setenv("STUDYHUB_CLOUD_MODELS", "z-ai/glm-5.3-flash,inclusionai/ling-3.0-flash")        # only allow-listed models are ever used
-    assert [t.model for t in _tiers(world, monkeypatch)[0][:2]] == ["z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash"]
+    assert [t.model for t in _tiers(world, monkeypatch)[0][:2]] == ["inclusionai/ling-3.0-flash", "z-ai/glm-5.3-flash"]
     monkeypatch.setenv("STUDYHUB_CLOUD_ORDER_ANSWER", "inclusionai/ling-3.0-flash,not/allowed")
     assert _tiers(world, monkeypatch)[0][0].model == "inclusionai/ling-3.0-flash"
 

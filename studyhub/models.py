@@ -39,11 +39,11 @@ MAX_CLOUD_TIERS = 2            # at most two cloud models are tried for one task
 
 # Preferred cloud models per task, best fit first. Only models on the allow-list are ever used. Override one with
 # STUDYHUB_CLOUD_ORDER_<TASK>=model,model (for example STUDYHUB_CLOUD_ORDER_WRITE).
-CLOUD_ORDER = {
-    "answer": ["qwen/qwen3.7-flash", "openai/gpt-oss-120b", "deepseek/deepseek-v4-flash-0731", "z-ai/glm-5.3-flash", "mistralai/mistral-small-3.2-24b-instruct", "inclusionai/ling-3.0-flash"],
-    "write": ["openai/gpt-oss-120b", "qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash-0731", "mistralai/mistral-small-3.2-24b-instruct", "z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash"],
-    "plan": ["qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash-0731", "z-ai/glm-5.3-flash", "openai/gpt-oss-120b", "mistralai/mistral-small-3.2-24b-instruct", "inclusionai/ling-3.0-flash"],
-    "simple": ["inclusionai/ling-3.0-flash", "mistralai/mistral-small-3.2-24b-instruct", "qwen/qwen3.7-flash", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-0731", "openai/gpt-oss-120b"],
+CLOUD_ORDER = {   # ordered by the measured bake-off (scripts/agent_bakeoff.py): quality was equal, speed and token use were not
+    "answer": ["mistralai/mistral-small-3.2-24b-instruct", "openai/gpt-oss-120b", "inclusionai/ling-3.0-flash", "z-ai/glm-5.3-flash", "deepseek/deepseek-v4-flash-0731", "qwen/qwen3.7-flash"],
+    "write": ["mistralai/mistral-small-3.2-24b-instruct", "openai/gpt-oss-120b", "z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash", "qwen/qwen3.7-flash", "deepseek/deepseek-v4-flash-0731"],
+    "plan": ["mistralai/mistral-small-3.2-24b-instruct", "z-ai/glm-5.3-flash", "inclusionai/ling-3.0-flash", "openai/gpt-oss-120b", "deepseek/deepseek-v4-flash-0731", "qwen/qwen3.7-flash"],
+    "simple": ["mistralai/mistral-small-3.2-24b-instruct", "inclusionai/ling-3.0-flash", "z-ai/glm-5.3-flash", "openai/gpt-oss-120b", "deepseek/deepseek-v4-flash-0731", "qwen/qwen3.7-flash"],
 }
 LOCAL_FIRST_TASKS = {"simple"}
 _credit_cache: dict[str, tuple[float, float | None]] = {}

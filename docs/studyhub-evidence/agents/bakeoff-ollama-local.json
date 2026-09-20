@@ -1,0 +1,141 @@
+[
+ {
+  "model": "llama3.1:latest (local)",
+  "qa": {
+   "questions": 8,
+   "in_scope_ok": "5/5",
+   "others_ok": "3/3",
+   "all_quotes_verbatim": true,
+   "errors": 0,
+   "mean_seconds": 26.6
+  },
+  "qa_rows": [
+   {
+    "kind": "in-scope",
+    "question": "What does the pop operation do on a stack?",
+    "status": "answered",
+    "tier": "local",
+    "model": "llama3.1:latest",
+    "seconds": 30.3,
+    "claims": 1,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "in-scope",
+    "question": "How does a queue differ from a stack?",
+    "status": "answered",
+    "tier": "local",
+    "model": "llama3.1:latest",
+    "seconds": 38.4,
+    "claims": 2,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "in-scope",
+    "question": "What is inorder traversal of a binary tree?",
+    "status": "answered",
+    "tier": "local",
+    "model": "llama3.1:latest",
+    "seconds": 21.0,
+    "claims": 1,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "in-scope",
+    "question": "What does TCP do before sending data?",
+    "status": "answered",
+    "tier": "local",
+    "model": "llama3.1:latest",
+    "seconds": 40.2,
+    "claims": 2,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "in-scope",
+    "question": "Why is UDP faster than TCP?",
+    "status": "answered",
+    "tier": "local",
+    "model": "llama3.1:latest",
+    "seconds": 83.2,
+    "claims": 1,
+    "dropped": 1,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "out-of-scope",
+    "question": "What is photosynthesis?",
+    "status": "abstained",
+    "tier": "none",
+    "model": null,
+    "seconds": 0.0,
+    "claims": 0,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "out-of-scope",
+    "question": "Who invented the telephone?",
+    "status": "abstained",
+    "tier": "none",
+    "model": null,
+    "seconds": 0.0,
+    "claims": 0,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   },
+   {
+    "kind": "out-of-scope",
+    "question": "How do I install Python on Windows?",
+    "status": "abstained",
+    "tier": "none",
+    "model": null,
+    "seconds": 0.0,
+    "claims": 0,
+    "dropped": 0,
+    "verbatim": true,
+    "ok": true
+   }
+  ],
+  "practice": {
+   "requested": 4,
+   "produced": 4,
+   "rejected": 1,
+   "seconds": 322.3,
+   "quote_in_material": true,
+   "four_options": true,
+   "difficulty": {
+    "easy": 4
+   },
+   "model": "llama3.1:latest",
+   "note": ""
+  },
+  "mixed": {
+   "requested": 6,
+   "produced": 5,
+   "rejected": 2,
+   "seconds": 399.1,
+   "quote_in_material": true,
+   "four_options": true,
+   "difficulty": {
+    "easy": 1,
+    "medium": 2,
+    "hard": 2
+   },
+   "model": "llama3.1:latest",
+   "note": "5 of 6 questions passed every check. Not enough: Computer Networks \u203a Layers: 0 of 1"
+  },
+  "tokens": 0,
+  "credit_used_total": null
+ }
+]

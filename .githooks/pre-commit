@@ -1,0 +1,5 @@
+#!/bin/sh
+# Blocks a commit that contains a secret (see scripts/scan_secrets.py). Enable once:  git config core.hooksPath .githooks
+PY=python
+command -v python >/dev/null 2>&1 || PY=python3
+exec "$PY" scripts/scan_secrets.py

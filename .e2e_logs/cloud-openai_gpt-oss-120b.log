@@ -1,0 +1,8 @@
+
+=== openai/gpt-oss-120b (OpenRouter) ===
+  cited answers: in-scope 8/8 | others 6/6 | quotes verbatim True | 4.9s each | errors 0
+  practice: 4/4 kept, 0 rejected, 37.8s, quotes in material True
+  diagnostic-style: 5/6 kept, difficulty {'medium': 2, 'hard': 2, 'easy': 1}, 99.5s, quotes in material True
+  tokens (cloud): 24739 | total time 210s | credit used so far: $0.0199
+
+OpenRouter credit used by this run: $0.0169 ($9.978 left)

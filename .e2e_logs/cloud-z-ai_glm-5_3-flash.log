@@ -1,0 +1,8 @@
+
+=== z-ai/glm-5.3-flash (OpenRouter) ===
+  cited answers: in-scope 8/8 | others 6/6 | quotes verbatim True | 5.2s each | errors 0
+  practice: 4/4 kept, 0 rejected, 48.3s, quotes in material True
+  diagnostic-style: 6/6 kept, difficulty {'easy': 2, 'medium': 2, 'hard': 2}, 91.8s, quotes in material True
+  tokens (cloud): 31090 | total time 215s | credit used so far: $0.0210
+
+OpenRouter credit used by this run: $0.0196 ($9.976 left)

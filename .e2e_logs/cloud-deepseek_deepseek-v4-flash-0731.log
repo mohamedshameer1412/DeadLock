@@ -1,0 +1,8 @@
+
+=== deepseek/deepseek-v4-flash-0731 (OpenRouter) ===
+  cited answers: in-scope 8/8 | others 6/6 | quotes verbatim True | 6.0s each | errors 0
+  practice: 4/4 kept, 0 rejected, 94.0s, quotes in material True
+  diagnostic-style: 5/6 kept, difficulty {'easy': 2, 'medium': 2, 'hard': 1}, 227.6s, quotes in material True
+  tokens (cloud): 29829 | total time 406s | credit used so far: $0.0261
+
+OpenRouter credit used by this run: $0.0261 ($9.969 left)

@@ -1,0 +1,8 @@
+
+=== inclusionai/ling-3.0-flash (OpenRouter) ===
+  cited answers: in-scope 8/8 | others 6/6 | quotes verbatim True | 4.5s each | errors 0
+  practice: 4/4 kept, 3 rejected, 127.6s, quotes in material True
+  diagnostic-style: 6/6 kept, difficulty {'easy': 2, 'medium': 2, 'hard': 2}, 174.4s, quotes in material True
+  tokens (cloud): 28216 | total time 366s | credit used so far: $0.0241
+
+OpenRouter credit used by this run: $0.0247 ($9.970 left)

@@ -78,6 +78,15 @@ _worker_lock = threading.Lock()
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
+    path = request.url.path
+    if not settings.legacy_ui() and not path.startswith("/api/") and path != "/healthz":
+        # The old HTML pages are switched off: the web app lives at the Next.js address. Browsers are sent there, everything else gets a 404.
+        from fastapi.responses import JSONResponse
+        from studyhub import mailer
+        response = (RedirectResponse(mailer.public_url() + "/", status_code=302) if request.method == "GET"
+                    else JSONResponse({"error": {"code": "not_found", "message": "Not found."}}, status_code=404))
+        response.headers["Cache-Control"] = "no-store"
+        return response
     declared = request.headers.get("content-length", "")
     if declared.isdigit() and int(declared) > settings.max_upload_bytes() + 64 * 1024:
         response = _html("Too large", "<h1>That upload is too large</h1><p class='sub'>The limit is "

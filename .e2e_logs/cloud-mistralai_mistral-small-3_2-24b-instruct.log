@@ -1,0 +1,8 @@
+
+=== mistralai/mistral-small-3.2-24b-instruct (OpenRouter) ===
+  cited answers: in-scope 8/8 | others 6/6 | quotes verbatim True | 2.3s each | errors 0
+  practice: 4/4 kept, 0 rejected, 17.5s, quotes in material True
+  diagnostic-style: 5/6 kept, difficulty {'easy': 2, 'medium': 2, 'hard': 1}, 28.8s, quotes in material True
+  tokens (cloud): 14864 | total time 80s | credit used so far: $0.0069
+
+OpenRouter credit used by this run: $0.0069 ($9.988 left)

@@ -1,0 +1,6 @@
+
+=== llama3.1:latest (local) ===
+  cited answers: in-scope 5/5 | others 3/3 | quotes verbatim True | 26.6s each | errors 0
+  practice: 4/4 kept, 1 rejected, 322.3s, quotes in material True
+  diagnostic-style: 5/6 kept, difficulty {'easy': 1, 'medium': 2, 'hard': 2}, 399.1s, quotes in material True
+  tokens (cloud): 0 | total time 935s | credit used so far: n/a

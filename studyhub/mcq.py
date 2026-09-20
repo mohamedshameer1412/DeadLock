@@ -520,7 +520,9 @@ def run_job(store: Store, user_id: int, job_id: int, tiers: list[Tier], notes: l
     token = _MIX.set(itertools.cycle(LEVELS)) if row["purpose"] == "diagnostic" else None
     solver_token = _SOLVER_TIER.set(next((t for t in tiers if t.name == "local"), None))
     try:
-        res = generate(store, user_id, row["subject_id"], row["topic_id"], row["requested"], tiers, notes=notes, seed=job_id)
+        # a diagnostic is ten questions in one go: one revision round at most, so a slow local model finishes in minutes, not tens of minutes
+        res = generate(store, user_id, row["subject_id"], row["topic_id"], row["requested"], tiers, notes=notes, seed=job_id,
+                       revisions=1 if row["purpose"] == "diagnostic" else None)
     finally:
         if token is not None:
             _MIX.reset(token)

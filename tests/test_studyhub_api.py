@@ -367,3 +367,16 @@ def test_api_pages_carry_the_security_headers(env):
     r = a.req("GET", "/subjects")
     assert "script-src 'none'" in r.headers["content-security-policy"] and r.headers["x-frame-options"] == "DENY"
     assert r.headers["cache-control"] == "no-store"
+
+
+def test_the_old_html_pages_are_off_by_default_and_the_api_still_works(env, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("STUDYHUB_LEGACY_UI", "0")
+    monkeypatch.setenv("NEXUS_PUBLIC_URL", "http://localhost:3000")
+    c = TestClient(appmod.app, follow_redirects=False)
+    for path in ("/", "/login", "/subjects/1", "/subjects/1/quiz"):
+        r = c.get(path)
+        assert r.status_code == 302 and r.headers["location"] == "http://localhost:3000/", path      # sent to the web app
+    assert c.post("/login", data={"username": "a", "password": "b"}).status_code == 404               # no form posts to the old pages
+    assert c.get("/healthz").status_code == 200 and c.get(f"{API}/session").status_code == 200        # the API and the health check are untouched
+    monkeypatch.setenv("STUDYHUB_LEGACY_UI", "1")
+    assert c.get("/login").status_code == 200                                                          # one setting brings them back

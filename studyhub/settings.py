@@ -48,3 +48,11 @@ def scrypt_n() -> int:
     """scrypt cost. 2**15 (32 MB, ~100 ms) by default; tests lower it for speed. Each user's hash stores the
     parameters it was made with, so changing this never locks anyone out."""
     return int(os.environ.get("STUDYHUB_SCRYPT_N", str(2 ** 15)))
+
+
+def legacy_ui() -> bool:
+    """The old server-rendered pages (the Next.js app replaced them). Off unless STUDYHUB_LEGACY_UI=1; the test suite keeps them on
+    because much of it still exercises them."""
+    default = "1" if os.environ.get("PYTEST_CURRENT_TEST") else "0"
+    return os.environ.get("STUDYHUB_LEGACY_UI", default) == "1"
+
